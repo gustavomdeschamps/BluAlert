@@ -1,0 +1,44 @@
+name: blualert
+description: Aplicativo de alertas e orientacao da Defesa Civil de Blumenau.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  crypto: ^3.0.7
+  flutter:
+    sdk: flutter
+  flutter_map: ^8.3.1
+  flutter_secure_storage: ^10.3.1
+  geolocator: ^14.0.2
+  http: ^1.6.0
+  image_picker: ^1.2.2
+  latlong2: ^0.10.1
+  shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.4
+  flutter_test:
+    sdk: flutter
+
+flutter_launcher_icons:
+  android: true
+  image_path: assets/brand/blualert_mark.png
+  adaptive_icon_background: "#0B2748"
+  adaptive_icon_foreground: assets/brand/blualert_mark.png
+  adaptive_icon_foreground_inset: 18
+  min_sdk_android: 24
+  web:
+    generate: true
+    image_path: assets/brand/blualert_mark.png
+    background_color: "#0B2748"
+    theme_color: "#0B2748"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/blualert_mark.png
+    - assets/brand/defesa_civil_blumenau.png

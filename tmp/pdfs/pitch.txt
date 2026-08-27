@@ -1,0 +1,63 @@
+APLICATIVO DE
+ALERTA OFFLINE
+BLUALERT
+DEFESA CIVIL
+Conectando cidadãos à Defesa Civil em situações de emergência
+
+PROBLEMA E
+DIMENSÃO
+D a d o s  d e  I m p a c t o  H u m a n o  ( O N U )
+T r a g é d i a  d e  2 0 0 8 :  U m  s i s t e m a  d e  a l e r t a  c o m  I n t e l i g ê n c i a  A r t i f i c i a l
+p o d e r i a  r e d u z i r  a  m o r t a l i d a d e  e m  a t é  6  v e z e s  ( c e r c a  d e  2 0  v i d a s
+p r e s e r v a d a s )  e  o s  d a n o s  m a t e r i a i s  e m  a t é  3 0 % .
+C r i s e  d e  2 0 2 3 :  M a i s  d e  1 . 2 0 0  p e s s o a s  f o r a m  a c o l h i d a s  e m  1 5  a b r i g o s ,
+e v i d e n c i a n d o  a  n e c e s s i d a d e  d e  s i s t e m a s  d e  a l e r t a  m a i s  e f i c i e n t e s  p a r a
+m e l h o r a r  a  r e s p o s t a  a  d e s a s t r e s .
+
+ÁREAS
+AFETADAS
+I n u n d a ç õ e s ,  A l a g a m e n t o s  e  I n c ê n d i o s
+•  I t o u p a v a z i n h a
+•  F i d é l i s  
+•  F o r t a l e z a
+R i s c o  G e o l ó g i c o  ( D e s l i z a m e n t o s )
+•  G a r c i a
+•  P r o g r e s s o
+•  V e l h a  /  V e l h a  C e n t r a l
+•  B a d e n f u r t
+•  P a s s o  M a n s o
+
+V A L I D A Ç Ã O  D A  D O R
+
+NOSSA SOLUÇÃO
+
+
+D I F E R E N C I A I S  D O  S I S T E M A
+Inteligência Artificial Integrada
+Comunicação Mesmo Sem Internet
+Orientação Imediata ao Cidadão
+ LoRa32
+
+VIABILIDADE
+FINANCEIRA
+O  B l u A l e r t  p o s s u i  b a i x o  c u s t o  e  f u t u r a m e n t e  c o m
+d i s p o s i t i v o s  H e l t e c  M e s h t a s t i c  L o R a 3 2  V 3  p a r a  c o m u n i c a ç ã o
+o f f l i n e .  O  i n v e s t i m e n t o  e s t i m a d o  i n i c i a l  é  d e  R $  5 . 0 0 0  a  R $
+1 0 . 0 0 0 ,  t o r n a n d o  o  p r o j e t o  v i á v e l ,  e s c a l á v e l  e  s u s t e n t á v e l .
+
+C O N C L U S Ã O
+PROJEÇÃO DE IMPACTO FUTURO:
+Inteligência Artificial Integrada
+Mais vidas protegidas
+ Comunicação resiliente
+Expansão para outras cidades
+
+INTEGRANTES:
+Gustavo More ira De sch ampsAnge lo Balotim Mattos João Pe dro Altini Sch mitz
+• Secretaria Municipal de Defesa Civil de Blumenau (SEDECI) / AlertaBlu
+• Defesa Civil do Estado de Santa Catarina (Defesa Civil SC)
+• EPAGRI/CIRAM — Monitoramento Hidrometeorológico de SC
+• CEMADEN — Centro Nacional de Monitoramento e Alertas de Desastres Naturais
+• UNDRR — Escritório das Nações Unidas para a Redução do Risco de Desastres
+• OMM — Organização Meteorológica Mundial
+REFERÊNCIAS:
