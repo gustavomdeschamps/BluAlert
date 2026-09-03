@@ -1,0 +1,316 @@
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class BackendUnavailable implements Exception {
+  const BackendUnavailable(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+class BackendSession {
+  const BackendSession(
+      {required this.accessToken,
+      required this.refreshToken,
+      required this.expiresAt});
+  final String accessToken;
+  final String refreshToken;
+  final DateTime expiresAt;
+
+  Map<String, Object?> toJson() => {
+        'accessToken': accessToken,
+        'refreshToken': refreshToken,
+        'expiresAt': expiresAt.toIso8601String(),
+      };
+
+  factory BackendSession.fromJson(Map<String, dynamic> json) => BackendSession(
+        accessToken: json['accessToken'] as String,
+        refreshToken: json['refreshToken'] as String,
+        expiresAt: DateTime.parse(json['expiresAt'] as String),
+      );
+}
+
+class BackendClient {
+  BackendClient({http.Client? httpClient})
+      : _http = httpClient ?? http.Client();
+
+  static const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  static const anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+  static const _sessionKey = 'blualert_backend_session_v1';
+  static const _secureStorage = FlutterSecureStorage();
+  final http.Client _http;
+
+  bool get isConfigured => supabaseUrl.isNotEmpty && anonKey.isNotEmpty;
+
+  Future<BackendSession> session() async {
+    if (!isConfigured) {
+      throw const BackendUnavailable(
+        'O canal piloto ainda não foi configurado neste aplicativo. Em emergência, ligue 199.',
+      );
+    }
+    final current = await _readSession();
+    if (current != null &&
+        current.expiresAt
+            .isAfter(DateTime.now().add(const Duration(minutes: 2))))
+      return current;
+    if (current != null) {
+      try {
+        return await _refresh(current.refreshToken);
+      } catch (_) {
+        await _clearSession();
+      }
+    }
+    throw const BackendUnavailable(
+      'Sua sessão segura expirou. Entre novamente com e-mail e senha.',
+    );
+  }
+
+  Future<void> register({
+    required String email,
+    required String password,
+    required String fullName,
+    required String phone,
+    required String referenceAddress,
+    double? latitude,
+    double? longitude,
+  }) async {
+    _requireConfiguration();
+    final response = await _http
+        .post(
+          Uri.parse('$supabaseUrl/auth/v1/signup'),
+          headers: {'apikey': anonKey, 'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email.trim().toLowerCase(),
+            'password': password,
+            'data': {
+              'full_name': fullName.trim(),
+              'phone': _internationalPhone(phone),
+              'reference_address': referenceAddress.trim(),
+              'reference_latitude': latitude,
+              'reference_longitude': longitude,
+            },
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    final decoded = _decode(response.body);
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        decoded['user'] == null) {
+      throw BackendUnavailable(_authError(decoded));
+    }
+    if (decoded['access_token'] != null) await _saveAuthResponse(decoded);
+  }
+
+  Future<void> signIn({required String email, required String password}) async {
+    _requireConfiguration();
+    final response = await _http
+        .post(
+          Uri.parse('$supabaseUrl/auth/v1/token?grant_type=password'),
+          headers: {'apikey': anonKey, 'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email.trim().toLowerCase(),
+            'password': password,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    final decoded = _decode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendUnavailable(_authError(decoded));
+    }
+    await _saveAuthResponse(decoded);
+  }
+
+  Future<void> resendConfirmation(String email) async {
+    _requireConfiguration();
+    final response = await _http
+        .post(
+          Uri.parse('$supabaseUrl/auth/v1/resend'),
+          headers: {'apikey': anonKey, 'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'type': 'signup',
+            'email': email.trim().toLowerCase(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendUnavailable(_authError(_decode(response.body)));
+    }
+  }
+
+  Future<Map<String, dynamic>> invoke(
+      String function, Map<String, Object?> body) async {
+    final active = await session();
+    final response = await _http
+        .post(
+          Uri.parse('$supabaseUrl/functions/v1/$function'),
+          headers: {
+            'apikey': anonKey,
+            'Authorization': 'Bearer ${active.accessToken}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
+    final decoded = _decode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendUnavailable(_friendlyError(decoded['error']?.toString()));
+    }
+    return decoded;
+  }
+
+  Future<void> upload(Uri signedUrl, Uint8List bytes, String mimeType) async {
+    final response = await _http
+        .put(signedUrl, headers: {'Content-Type': mimeType}, body: bytes)
+        .timeout(const Duration(seconds: 90));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw const BackendUnavailable(
+          'A evidência não terminou de enviar. Ela poderá ser reenviada sem duplicar a ocorrência.');
+    }
+  }
+
+  String sha256Of(Uint8List bytes) => sha256.convert(bytes).toString();
+
+  String uuid() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex =
+        bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  Future<BackendSession> _refresh(String refreshToken) async {
+    final response = await _http
+        .post(
+          Uri.parse('$supabaseUrl/auth/v1/token?grant_type=refresh_token'),
+          headers: {'apikey': anonKey, 'Content-Type': 'application/json'},
+          body: jsonEncode({'refresh_token': refreshToken}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300)
+      throw const BackendUnavailable('Sessão expirada.');
+    return _saveAuthResponse(_decode(response.body));
+  }
+
+  Future<BackendSession> _saveAuthResponse(Map<String, dynamic> body) async {
+    final expiresIn = (body['expires_in'] as num?)?.toInt() ?? 3600;
+    final value = BackendSession(
+      accessToken: body['access_token'] as String,
+      refreshToken: body['refresh_token'] as String,
+      expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+    );
+    final encoded = jsonEncode(value.toJson());
+    if (kIsWeb) {
+      await (await SharedPreferences.getInstance())
+          .setString(_sessionKey, encoded);
+    } else {
+      await _secureStorage.write(key: _sessionKey, value: encoded);
+    }
+    return value;
+  }
+
+  Future<BackendSession?> _readSession() async {
+    final encoded = kIsWeb
+        ? (await SharedPreferences.getInstance()).getString(_sessionKey)
+        : await _secureStorage.read(key: _sessionKey);
+    if (encoded == null) return null;
+    try {
+      return BackendSession.fromJson(
+          jsonDecode(encoded) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _clearSession() async {
+    if (kIsWeb) {
+      await (await SharedPreferences.getInstance()).remove(_sessionKey);
+    } else {
+      await _secureStorage.delete(key: _sessionKey);
+    }
+  }
+
+  Map<String, dynamic> _decode(String body) {
+    try {
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return {'error': 'INVALID_RESPONSE'};
+    }
+  }
+
+  String _friendlyError(String? code) => switch (code) {
+        'RATE_LIMITED' =>
+          'Limite de envios atingido. Se houver risco imediato, ligue 199 ou 193.',
+        'RECEIVING_DISABLED' =>
+          'O canal digital está temporariamente indisponível. Ligue 199.',
+        'UPLOAD_INCOMPLETE' =>
+          'Uma evidência ainda não chegou por completo. Tente novamente.',
+        'PHOTO_REQUIRED' => 'Inclua pelo menos uma foto da ocorrência.',
+        'INVALID_MEDIA' =>
+          'Uma evidência não atende aos limites de tamanho ou formato.',
+        _ =>
+          'A central não confirmou o recebimento. O envio não será marcado como recebido.',
+      };
+
+  void _requireConfiguration() {
+    if (!isConfigured) {
+      throw const BackendUnavailable(
+        'O canal piloto ainda não foi configurado neste aplicativo.',
+      );
+    }
+  }
+
+  String _internationalPhone(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    return digits.startsWith('55') ? '+$digits' : '+55$digits';
+  }
+
+  String _authError(Map<String, dynamic> body) {
+    final code = body['error_code']?.toString();
+    final message =
+        (body['msg'] ?? body['message'] ?? body['error_description'])
+            ?.toString()
+            .toLowerCase();
+    if (code == 'user_already_exists' || code == 'email_exists') {
+      return 'Este e-mail já possui cadastro.';
+    }
+    if (code == 'invalid_credentials') return 'E-mail ou senha incorretos.';
+    if (code == 'email_not_confirmed') {
+      return 'Confirme o link enviado ao seu e-mail antes de entrar.';
+    }
+    if (code == 'weak_password') {
+      return 'Use uma senha mais forte, com pelo menos 8 caracteres.';
+    }
+    if (code == 'email_address_not_authorized' ||
+        message?.contains('email address not authorized') == true) {
+      return 'Este e-mail foi recusado porque o envio de confirmações do projeto ainda não está configurado.';
+    }
+    if (code == 'over_email_send_rate_limit' ||
+        code == 'email_rate_limit_exceeded' ||
+        message?.contains('rate limit') == true) {
+      return 'O limite temporário de e-mails foi atingido. Aguarde uma hora e tente novamente.';
+    }
+    if (code == 'signup_disabled') {
+      return 'Novos cadastros estão desativados no servidor.';
+    }
+    if (message?.contains('database error') == true) {
+      return 'A conta chegou ao servidor, mas o perfil não pôde ser salvo no banco.';
+    }
+    if (message?.contains('error sending confirmation email') == true ||
+        message?.contains('confirmation email') == true) {
+      return 'O Supabase não conseguiu enviar o e-mail de confirmação. O projeto precisa de um servidor de e-mail configurado.';
+    }
+    if (code == 'email_address_invalid') {
+      return 'O endereço de e-mail informado não foi aceito.';
+    }
+    final safeCode = code == null || code.isEmpty ? null : ' Código: $code.';
+    return 'O Supabase recusou o cadastro.${safeCode ?? ''}';
+  }
+}

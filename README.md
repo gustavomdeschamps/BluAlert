@@ -7,8 +7,8 @@ Aplicativo móvel de alertas e orientação da Defesa Civil para Blumenau. O pro
 - abertura única com animação da nova marca, rio e identidade própria de Blumenau;
 - cadastro e acesso na mesma tela, com nome, telefone, localização e PIN;
 - acesso protegido por PIN, com dados sensíveis no armazenamento seguro do Android;
-- registro de ocorrência com foto, vídeo de até 30 segundos, descrição e GPS;
-- envio real para o servidor BluAlert configurado, com identificador e arquivos persistidos;
+- registro de ocorrência com foto obrigatória de até 800 KB, vídeo opcional de até 20 segundos e 10 MB, descrição e GPS;
+- upload direto e autenticado para o Storage, com idempotência e confirmação final do backend;
 - mapa real da região atual, mediante autorização explícita de localização;
 - leitura da situação oficial publicada pelo AlertaBlu, sem inventar dados quando a fonte estiver indisponível;
 - atalhos reais para Defesa Civil (199), Bombeiros (193) e SAMU (192);
@@ -17,12 +17,19 @@ Aplicativo móvel de alertas e orientação da Defesa Civil para Blumenau. O pro
 
 ## Executar
 
-```bash
-flutter pub get
-flutter run
+No Windows, o caminho mais confiável é:
+
+```powershell
+.\run-blualert.bat
 ```
 
+O script usa o cache privado `.pub-cache` dentro do projeto e impede que a limpeza automática do computador da escola remova pacotes durante a compilação. No VS Code, a mesma execução está disponível em **Terminal → Run Task → BluAlert: executar no Chrome**.
+
 Para abrir no navegador, selecione Chrome ou Edge quando o Flutter solicitar um dispositivo. Para Android, use um aparelho conectado ou um emulador.
+
+O endereço mostrado no terminal como `Dart VM Service` pertence apenas ao
+depurador. Não abra esse link na aba interna do VS Code: o BluAlert é executado
+na janela do Chrome aberta automaticamente pelo comando.
 
 ### Versão web com dados oficiais
 
@@ -35,13 +42,29 @@ npm start
 
 Depois, abra `http://127.0.0.1:3000`. Se o AlertaBlu estiver fora do ar, o aplicativo informa indisponibilidade e não reutiliza valores antigos.
 
-As ocorrências enviadas na versão local são recebidas em `server/data/occurrences`. Esse destino é o servidor de demonstração do BluAlert; ele não deve ser apresentado como canal oficial da Prefeitura até que a Defesa Civil forneça e autorize a integração de produção.
+O servidor local permanece apenas como ponte para a situação oficial do AlertaBlu na versão web. Ocorrências usam o backend Supabase descrito em `docs/backend-setup.md`.
 
-No Android, informe o endereço do servidor ao executar ou compilar:
+Informe somente a URL pública e a chave `anon` do projeto ao executar. A chave `service_role` nunca entra no aplicativo:
 
 ```bash
-flutter run --dart-define=BLUALERT_API_BASE=https://endereco-do-servidor
+flutter run --dart-define=SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co --dart-define=SUPABASE_ANON_KEY=SUA_CHAVE_ANON
 ```
+
+## Painel de operações
+
+O painel de alta densidade está em `operator-panel/`. Copie `.env.example` para `.env`, preencha a URL e a chave pública do Supabase e execute:
+
+```bash
+cd operator-panel
+npm install
+npm run dev
+```
+
+Para gerar os arquivos destinados ao Cloudflare Pages, use `npm run build`. O diretório de saída é `operator-panel/dist`.
+
+## Triagem assistida local
+
+O serviço opcional em `ai-triage/` roda no notebook da operação com Ollama. Ele sugere prioridade e justificativa; não possui função capaz de fechar ou ocultar ocorrências. Copie `.env.example` para `.env`, use uma conta com papel `operator` ou `supervisor` e execute `npm install` seguido de `npm start`.
 
 Na versão web, o perfil fica guardado no armazenamento local do navegador. No Android, o perfil e o PIN usam o cofre seguro do sistema. A localização só é solicitada durante o cadastro ou quando o usuário pede para atualizar o mapa.
 

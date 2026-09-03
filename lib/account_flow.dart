@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'address_search_service.dart';
+import 'backend_client.dart';
 
 const _deepBlue = Color(0xFF061C35);
 const _orange = Color(0xFFFF6328);
@@ -19,11 +20,13 @@ const _green = Color(0xFF14815A);
 
 class ResidentProfile {
   const ResidentProfile(
-      {required this.fullName,
+      {required this.email,
+      required this.fullName,
       required this.phone,
       required this.referenceAddress,
       this.latitude,
       this.longitude});
+  final String email;
   final String fullName;
   final String phone;
   final String referenceAddress;
@@ -32,6 +35,7 @@ class ResidentProfile {
   String get firstName => fullName.trim().split(RegExp(r'\s+')).first;
   bool get hasGpsReference => latitude != null && longitude != null;
   Map<String, Object?> toJson() => {
+        'email': email,
         'fullName': fullName,
         'phone': phone,
         'referenceAddress': referenceAddress,
@@ -40,6 +44,7 @@ class ResidentProfile {
       };
   factory ResidentProfile.fromJson(Map<String, dynamic> json) =>
       ResidentProfile(
+        email: json['email'] as String? ?? '',
         fullName: json['fullName'] as String,
         phone: json['phone'] as String,
         referenceAddress: json['referenceAddress'] as String? ?? '',
@@ -53,7 +58,6 @@ class ProfileVault {
   static const _storage = FlutterSecureStorage();
   static const _profileKey = 'resident_profile_v2';
   static const _legacyProfileKey = 'resident_profile_v1';
-  static const _pinKey = 'resident_pin_v1';
 
   Future<ResidentProfile?> readProfile() async {
     final encoded = kIsWeb
@@ -70,25 +74,14 @@ class ProfileVault {
     }
   }
 
-  Future<void> save(ResidentProfile profile, String pin) async {
+  Future<void> save(ResidentProfile profile) async {
     final encoded = jsonEncode(profile.toJson());
     if (kIsWeb) {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(_profileKey, encoded);
-      await preferences.setString(
-          _pinKey, sha256.convert(utf8.encode(pin)).toString());
     } else {
       await _storage.write(key: _profileKey, value: encoded);
-      await _storage.write(key: _pinKey, value: pin);
     }
-  }
-
-  Future<bool> unlock(String pin) async {
-    if (kIsWeb) {
-      final saved = (await SharedPreferences.getInstance()).getString(_pinKey);
-      return saved == sha256.convert(utf8.encode(pin)).toString();
-    }
-    return await _storage.read(key: _pinKey) == pin;
   }
 
   Future<void> clear() async {
@@ -96,11 +89,9 @@ class ProfileVault {
       final p = await SharedPreferences.getInstance();
       await p.remove(_profileKey);
       await p.remove(_legacyProfileKey);
-      await p.remove(_pinKey);
     } else {
       await _storage.delete(key: _profileKey);
       await _storage.delete(key: _legacyProfileKey);
-      await _storage.delete(key: _pinKey);
     }
   }
 }
@@ -117,6 +108,7 @@ enum _GateState { loading, launch, account, unlocked }
 
 class _AccountGateState extends State<AccountGate> {
   final vault = const ProfileVault();
+  final backend = BackendClient();
   _GateState state = _GateState.loading;
   ResidentProfile? profile;
   @override
@@ -134,8 +126,17 @@ class _AccountGateState extends State<AccountGate> {
     if (mounted) setState(() => state = _GateState.launch);
   }
 
-  Future<void> _register(ResidentProfile resident, String pin) async {
-    await vault.save(resident, pin);
+  Future<void> _register(ResidentProfile resident, String password) async {
+    await backend.register(
+      email: resident.email,
+      password: password,
+      fullName: resident.fullName,
+      phone: resident.phone,
+      referenceAddress: resident.referenceAddress,
+      latitude: resident.latitude,
+      longitude: resident.longitude,
+    );
+    await vault.save(resident);
     if (mounted)
       setState(() {
         profile = resident;
@@ -442,20 +443,27 @@ class AccountAccessScreen extends StatefulWidget {
 
 class _AccountAccessScreenState extends State<AccountAccessScreen>
     with SingleTickerProviderStateMixin {
+  final backend = BackendClient();
   final formKey = GlobalKey<FormState>();
   final fullName = TextEditingController();
+  final email = TextEditingController();
+  final password = TextEditingController();
   final phone = TextEditingController();
-  final address = TextEditingController();
-  final pin = TextEditingController();
-  final confirmPin = TextEditingController();
+  final street = TextEditingController();
+  final number = TextEditingController();
+  final addressSearch = AddressSearchService();
   late final AnimationController shakeController;
-  Position? position;
-  bool locating = false, saving = false, loginMode = false;
+  Timer? addressDebounce;
+  AddressSuggestion? selectedAddress;
+  List<AddressSuggestion> addressSuggestions = const [];
+  bool searchingAddress = false, saving = false, loginMode = false;
+  bool awaitingConfirmation = false;
   String? message;
   @override
   void initState() {
     super.initState();
     loginMode = widget.profile != null;
+    email.text = widget.profile?.email ?? '';
     shakeController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 380));
   }
@@ -463,87 +471,131 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
   @override
   void dispose() {
     fullName.dispose();
+    email.dispose();
+    password.dispose();
     phone.dispose();
-    address.dispose();
-    pin.dispose();
-    confirmPin.dispose();
+    street.dispose();
+    number.dispose();
+    addressDebounce?.cancel();
     shakeController.dispose();
     super.dispose();
   }
 
-  Future<void> locate() async {
+  void searchAddress(String value) {
+    addressDebounce?.cancel();
+    selectedAddress = null;
+    if (value.trim().length < 3) {
+      setState(() => addressSuggestions = const []);
+      return;
+    }
+    addressDebounce = Timer(const Duration(milliseconds: 650), () async {
+      if (!mounted) return;
+      setState(() => searchingAddress = true);
+      try {
+        final results = await addressSearch.searchStreets(value);
+        if (mounted && street.text.trim() == value.trim()) {
+          setState(() => addressSuggestions = results);
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            addressSuggestions = const [];
+            message = 'A busca de ruas está indisponível. Tente novamente.';
+          });
+        }
+      } finally {
+        if (mounted) setState(() => searchingAddress = false);
+      }
+    });
+  }
+
+  void selectAddress(AddressSuggestion suggestion) {
     setState(() {
-      locating = true;
+      selectedAddress = suggestion;
+      street.text = suggestion.street;
+      addressSuggestions = const [];
       message = null;
     });
-    try {
-      if (!await Geolocator.isLocationServiceEnabled())
-        throw const LocationServiceDisabledException();
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied)
-        permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever)
-        throw const PermissionDeniedException('Permissão não concedida');
-      final found = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              timeLimit: Duration(seconds: 15)));
-      if (mounted) setState(() => position = found);
-    } catch (_) {
-      if (mounted)
-        setState(() => message =
-            'Não foi possível obter o GPS. Informe seu endereço abaixo.');
-    } finally {
-      if (mounted) setState(() => locating = false);
-    }
+    FocusScope.of(context).nextFocus();
   }
 
   Future<void> createAccount() async {
     if (!formKey.currentState!.validate()) return;
-    if (position == null && address.text.trim().isEmpty) {
-      setState(() => message = 'Use o GPS ou informe seu endereço.');
-      return;
-    }
-    if (pin.text != confirmPin.text) {
-      setState(() => message = 'Os códigos digitados não são iguais.');
+    if (selectedAddress == null) {
+      setState(() => message = 'Selecione uma rua nas sugestões da busca.');
       return;
     }
     setState(() => saving = true);
-    await widget.onRegistered(
-        ResidentProfile(
-            fullName: fullName.text.trim(),
-            phone: phone.text.trim(),
-            referenceAddress: address.text.trim(),
-            latitude: position?.latitude,
-            longitude: position?.longitude),
-        pin.text);
+    try {
+      await widget.onRegistered(
+          ResidentProfile(
+              email: email.text.trim().toLowerCase(),
+              fullName: fullName.text.trim(),
+              phone: phone.text.trim(),
+              referenceAddress:
+                  '${selectedAddress!.street}, ${number.text.trim()}${selectedAddress!.neighborhood.isEmpty ? '' : ' - ${selectedAddress!.neighborhood}'}, Blumenau - SC',
+              latitude: selectedAddress!.latitude,
+              longitude: selectedAddress!.longitude),
+          password.text);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        message = error.toString().replaceFirst('BackendUnavailable: ', '');
+      });
+      return;
+    }
     if (!mounted) return;
-    pin.clear();
-    confirmPin.clear();
+    password.clear();
     setState(() {
       saving = false;
-      loginMode = true;
-      message = 'Cadastro concluído. Entre com o código que você criou.';
+      awaitingConfirmation = true;
+      message = null;
     });
   }
 
-  Future<void> unlock() async {
-    if (pin.text.length != 4) return;
+  Future<void> resendConfirmation() async {
     setState(() {
       saving = true;
       message = null;
     });
-    if (await widget.vault.unlock(pin.text)) {
-      if (mounted) widget.onUnlocked();
+    try {
+      await backend.resendConfirmation(email.text);
+      if (mounted) {
+        setState(() => message = 'Novo e-mail de confirmação enviado.');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => message =
+            error.toString().replaceFirst('BackendUnavailable: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> unlock() async {
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.text.trim()) ||
+        password.text.length < 8) {
+      setState(() => message = 'Informe seu e-mail e sua senha.');
       return;
     }
-    if (!mounted) return;
-    pin.clear();
     setState(() {
-      saving = false;
-      message = 'Código incorreto. Confira e tente novamente.';
+      saving = true;
+      message = null;
     });
+    try {
+      await backend.signIn(email: email.text, password: password.text);
+      if (mounted) widget.onUnlocked();
+      return;
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          saving = false;
+          message = error.toString().replaceFirst('BackendUnavailable: ', '');
+        });
+      }
+    }
     await shakeController.forward(from: 0);
   }
 
@@ -601,9 +653,62 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                               builder: (context, child) => Transform.translate(
                                   offset: Offset(shake.value, 0), child: child),
                               child: _buildLogin())
-                          : _buildRegistration()))),
+                          : awaitingConfirmation
+                              ? _buildConfirmation()
+                              : _buildRegistration()))),
         ]));
   }
+
+  Widget _buildConfirmation() => Column(
+        key: const ValueKey('confirmation'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+              width: 62,
+              height: 62,
+              decoration: const BoxDecoration(
+                  color: Color(0xFFE8F5EF), shape: BoxShape.circle),
+              child: const Icon(Icons.mark_email_unread_outlined,
+                  color: _green, size: 30)),
+          const SizedBox(height: 20),
+          const Text('Confirme seu e-mail',
+              style: TextStyle(
+                  color: _ink,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.8)),
+          const SizedBox(height: 8),
+          const Text('Enviamos um link de confirmação para:',
+              style: TextStyle(color: _muted)),
+          const SizedBox(height: 5),
+          Text(email.text,
+              style: const TextStyle(
+                  color: _ink, fontWeight: FontWeight.w900, fontSize: 15)),
+          const SizedBox(height: 18),
+          const Text(
+              'Abra o e-mail, toque no link e volte ao BluAlert para entrar. Confira também a caixa de spam.',
+              style: TextStyle(color: _muted, height: 1.5)),
+          if (message != null) ...[
+            const SizedBox(height: 14),
+            StatusMessage(
+                text: message!, success: message!.startsWith('Novo e-mail')),
+          ],
+          const SizedBox(height: 22),
+          SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                  onPressed: () => setState(() => loginMode = true),
+                  style: FilledButton.styleFrom(backgroundColor: _orange),
+                  icon: const Icon(Icons.login_rounded),
+                  label: const Text('Já confirmei, quero entrar'))),
+          const SizedBox(height: 8),
+          Center(
+              child: TextButton(
+                  onPressed: saving ? null : resendConfirmation,
+                  child:
+                      Text(saving ? 'Enviando...' : 'Reenviar confirmação'))),
+        ],
+      );
 
   Widget _buildLogin() =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -615,10 +720,22 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                 fontWeight: FontWeight.w900,
                 letterSpacing: -.8)),
         const SizedBox(height: 7),
-        const Text('Digite seu código de 4 números para continuar.',
+        const Text('Entre com o e-mail confirmado e sua senha.',
             style: TextStyle(color: _muted)),
         const SizedBox(height: 24),
-        PinInput(controller: pin, onComplete: unlock),
+        AppField(
+          controller: email,
+          label: 'E-mail',
+          icon: Icons.alternate_email_rounded,
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 12),
+        AppField(
+          controller: password,
+          label: 'Senha',
+          icon: Icons.password_rounded,
+          obscureText: true,
+        ),
         if (message != null) ...[
           const SizedBox(height: 12),
           StatusMessage(
@@ -635,14 +752,14 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                         dimension: 18,
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.lock_open_rounded),
+                    : const Icon(Icons.login_rounded),
                 label: const Text('Entrar no BluAlert'))),
         const SizedBox(height: 8),
         Center(
             child: TextButton(
                 onPressed: widget.onReset,
                 child: const Text(
-                    'Esqueci o código ou quero refazer o cadastro'))),
+                    'Não consigo entrar ou quero refazer o cadastro'))),
       ]);
 
   Widget _buildRegistration() => Form(
@@ -659,8 +776,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                     fontWeight: FontWeight.w900,
                     letterSpacing: -.8)),
             const SizedBox(height: 7),
-            const Text(
-                'Um único telefone. Uma localização pronta para acompanhar sua ocorrência.',
+            const Text('Seus dados essenciais para pedir ajuda com rapidez.',
                 style: TextStyle(color: _muted, height: 1.4)),
             const SizedBox(height: 22),
             AppField(
@@ -674,6 +790,27 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                         : null),
             const SizedBox(height: 12),
             AppField(
+                controller: email,
+                label: 'E-mail de acesso',
+                hint: 'seunome@email.com',
+                icon: Icons.alternate_email_rounded,
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) => RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                        .hasMatch((v ?? '').trim())
+                    ? null
+                    : 'Informe um e-mail válido'),
+            const SizedBox(height: 12),
+            AppField(
+                controller: password,
+                label: 'Senha da conta',
+                hint: 'Mínimo de 8 caracteres',
+                icon: Icons.password_rounded,
+                obscureText: true,
+                validator: (v) => (v ?? '').length < 8
+                    ? 'Use pelo menos 8 caracteres'
+                    : null),
+            const SizedBox(height: 12),
+            AppField(
                 controller: phone,
                 label: 'Telefone para contato',
                 hint: '(47) 99999-9999',
@@ -684,25 +821,41 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                   LengthLimitingTextInputFormatter(11)
                 ],
                 validator: validatePhone),
-            const SizedBox(height: 18),
-            LocationCapture(
-                position: position, locating: locating, onTap: locate),
             const SizedBox(height: 12),
             AppField(
-                controller: address,
-                label: 'Endereço de referência',
-                hint: 'Rua, número e bairro',
-                icon: Icons.home_work_outlined,
-                textCapitalization: TextCapitalization.words),
-            const SizedBox(height: 18),
-            const Text('Crie seu código de acesso',
-                style: TextStyle(fontWeight: FontWeight.w900, color: _ink)),
-            const SizedBox(height: 9),
-            Row(children: [
-              Expanded(child: PinInput(controller: pin, compact: true)),
-              const SizedBox(width: 10),
-              Expanded(child: PinInput(controller: confirmPin, compact: true))
-            ]),
+                controller: street,
+                label: 'Rua',
+                hint: 'Comece a digitar o nome da rua',
+                icon: Icons.location_on_outlined,
+                textCapitalization: TextCapitalization.words,
+                onChanged: searchAddress,
+                suffix: searchingAddress
+                    ? const Padding(
+                        padding: EdgeInsets.all(13),
+                        child: SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2)))
+                    : selectedAddress != null
+                        ? const Icon(Icons.check_circle_rounded, color: _green)
+                        : null,
+                validator: (_) => selectedAddress == null
+                    ? 'Escolha uma rua na lista de sugestões'
+                    : null),
+            if (addressSuggestions.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              AddressSuggestionList(
+                  suggestions: addressSuggestions, onSelected: selectAddress),
+            ],
+            const SizedBox(height: 12),
+            AppField(
+                controller: number,
+                label: 'Número',
+                hint: 'Ex.: 30 ou S/N',
+                icon: Icons.pin_drop_outlined,
+                textInputAction: TextInputAction.done,
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'Informe o número ou S/N'
+                    : null),
             if (message != null) ...[
               const SizedBox(height: 12),
               StatusMessage(text: message!)
@@ -722,103 +875,47 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                     label: const Text('Criar cadastro'))),
             const SizedBox(height: 10),
             const Text(
-                'Seus dados não são enviados durante o cadastro. Eles acompanham somente uma ocorrência que você decidir enviar.',
+                'Seus dados ficam protegidos e são usados somente no atendimento das ocorrências que você enviar.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: _muted, fontSize: 11, height: 1.4)),
           ]));
 }
 
-class LocationCapture extends StatelessWidget {
-  const LocationCapture(
-      {required this.position,
-      required this.locating,
-      required this.onTap,
-      super.key});
-  final Position? position;
-  final bool locating;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Material(
-      color: position != null ? const Color(0xFFE8F5EF) : Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-          onTap: locating ? null : onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                      color:
-                          position != null ? _green : const Color(0xFFD4DDE3))),
-              child: Row(children: [
-                SizedBox.square(
-                    dimension: 46,
-                    child: locating
-                        ? const Padding(
-                            padding: EdgeInsets.all(11),
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: _orange))
-                        : Icon(
-                            position != null
-                                ? Icons.location_on_rounded
-                                : Icons.my_location_rounded,
-                            color: position != null ? _green : _orange)),
-                const SizedBox(width: 9),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text(
-                          position != null
-                              ? 'Localização confirmada'
-                              : 'Usar minha localização atual',
-                          style: const TextStyle(
-                              color: _ink, fontWeight: FontWeight.w900)),
-                      Text(
-                          position != null
-                              ? 'Precisão aproximada: ${position!.accuracy.round()} m'
-                              : 'Você decide quando compartilhar.',
-                          style: const TextStyle(color: _muted, fontSize: 11))
-                    ])),
-                const Icon(Icons.chevron_right_rounded, color: _muted),
-              ]))));
-}
+class AddressSuggestionList extends StatelessWidget {
+  const AddressSuggestionList(
+      {required this.suggestions, required this.onSelected, super.key});
 
-class PinInput extends StatelessWidget {
-  const PinInput(
-      {required this.controller,
-      this.onComplete,
-      this.compact = false,
-      super.key});
-  final TextEditingController controller;
-  final VoidCallback? onComplete;
-  final bool compact;
+  final List<AddressSuggestion> suggestions;
+  final ValueChanged<AddressSuggestion> onSelected;
+
   @override
-  Widget build(BuildContext context) => TextFormField(
-      controller: controller,
-      obscureText: true,
-      obscuringCharacter: '●',
-      keyboardType: TextInputType.number,
-      textAlign: TextAlign.center,
-      inputFormatters: [
-        FilteringTextInputFormatter.digitsOnly,
-        LengthLimitingTextInputFormatter(4)
-      ],
-      onChanged: (v) {
-        if (v.length == 4) onComplete?.call();
-      },
-      validator: (v) => (v ?? '').length != 4 ? 'Use 4 números' : null,
-      style: TextStyle(
-          fontSize: compact ? 18 : 24,
-          letterSpacing: compact ? 8 : 14,
-          fontWeight: FontWeight.w900),
-      decoration: InputDecoration(
-          labelText: compact ? 'Código' : null,
-          hintText: '••••',
-          hintStyle: TextStyle(
-              letterSpacing: compact ? 6 : 12,
-              color: const Color(0xFF9AA7AE))));
+  Widget build(BuildContext context) => Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFD4DDE3))),
+      child: Column(
+          children: suggestions.indexed.map((entry) {
+        final suggestion = entry.$2;
+        return Column(children: [
+          if (entry.$1 > 0)
+            const Divider(height: 1, indent: 48, color: Color(0xFFE3E9ED)),
+          ListTile(
+              dense: true,
+              minVerticalPadding: 10,
+              leading: const Icon(Icons.signpost_outlined, color: _orange),
+              title: Text(suggestion.street,
+                  style: const TextStyle(
+                      color: _ink, fontWeight: FontWeight.w800)),
+              subtitle: suggestion.subtitle.isEmpty
+                  ? null
+                  : Text(suggestion.subtitle,
+                      style: const TextStyle(color: _muted, fontSize: 11)),
+              trailing: const Icon(Icons.chevron_right_rounded, color: _muted),
+              onTap: () => onSelected(suggestion)),
+        ]);
+      }).toList()));
 }
 
 class StatusMessage extends StatelessWidget {
@@ -853,7 +950,11 @@ class AppField extends StatelessWidget {
       this.hint,
       this.keyboardType,
       this.inputFormatters,
+      this.obscureText = false,
       this.textCapitalization = TextCapitalization.none,
+      this.textInputAction,
+      this.onChanged,
+      this.suffix,
       this.validator,
       super.key});
   final TextEditingController controller;
@@ -862,17 +963,27 @@ class AppField extends StatelessWidget {
   final IconData icon;
   final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
+  final bool obscureText;
   final TextCapitalization textCapitalization;
+  final TextInputAction? textInputAction;
+  final ValueChanged<String>? onChanged;
+  final Widget? suffix;
   final String? Function(String?)? validator;
   @override
   Widget build(BuildContext context) => TextFormField(
       controller: controller,
+      obscureText: obscureText,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       textCapitalization: textCapitalization,
+      textInputAction: textInputAction,
+      onChanged: onChanged,
       validator: validator,
       decoration: InputDecoration(
-          labelText: label, hintText: hint, prefixIcon: Icon(icon)));
+          labelText: label,
+          hintText: hint,
+          prefixIcon: Icon(icon),
+          suffixIcon: suffix));
 }
 
 String? validatePhone(String? value) =>

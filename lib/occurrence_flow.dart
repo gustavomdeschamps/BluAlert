@@ -1,11 +1,10 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
 import 'account_flow.dart';
+import 'backend_client.dart';
 
 const _navy = Color(0xFF0B2748);
 const _orange = Color(0xFFF06432);
@@ -18,7 +17,9 @@ const _success = Color(0xFF16845B);
 enum EvidenceKind { photo, video }
 
 class OccurrenceEvidence {
-  const OccurrenceEvidence({required this.file, required this.kind});
+  const OccurrenceEvidence(
+      {required this.id, required this.file, required this.kind});
+  final String id;
   final XFile file;
   final EvidenceKind kind;
 }
@@ -30,7 +31,10 @@ class OccurrenceReceipt {
 }
 
 class OccurrenceService {
-  static const nativeApiBase = String.fromEnvironment('BLUALERT_API_BASE');
+  OccurrenceService({BackendClient? backend})
+      : backend = backend ?? BackendClient();
+  final BackendClient backend;
+  String newId() => backend.uuid();
 
   Future<OccurrenceReceipt> send({
     required ResidentProfile resident,
@@ -38,65 +42,89 @@ class OccurrenceService {
     required String description,
     required Position position,
     required List<OccurrenceEvidence> evidence,
+    required String submissionId,
   }) async {
-    final endpoint = kIsWeb
-        ? Uri.base.resolve('/api/ocorrencias')
-        : nativeApiBase.isEmpty
-            ? null
-            : Uri.parse('$nativeApiBase/api/ocorrencias');
-    if (endpoint == null) {
-      throw StateError(
-        'A central precisa ser configurada neste aparelho antes do envio.',
-      );
-    }
-
+    final occurrenceId = submissionId;
+    final idempotencyKey = submissionId;
     final attachments = <Map<String, Object?>>[];
+    final bytesById = <String, Uint8List>{};
+    var hasPhoto = false;
     for (final item in evidence) {
       final bytes = await item.file.readAsBytes();
-      if (bytes.length > 18 * 1024 * 1024) {
-        throw StateError('${item.file.name} ultrapassa o limite de 18 MB.');
-      }
+      final maximum =
+          item.kind == EvidenceKind.photo ? 800 * 1024 : 10 * 1024 * 1024;
+      if (bytes.length > maximum)
+        throw StateError(item.kind == EvidenceKind.photo
+            ? 'A foto ultrapassa 800 KB. Tire outra foto para concluir o envio.'
+            : 'O vídeo ultrapassa 10 MB. Grave um trecho mais curto.');
+      hasPhoto |= item.kind == EvidenceKind.photo;
+      final mediaId = item.id;
+      final mimeType =
+          item.kind == EvidenceKind.photo ? 'image/jpeg' : 'video/mp4';
+      bytesById[mediaId] = bytes;
       attachments.add({
-        'name': item.file.name,
-        'mimeType': item.file.mimeType ??
-            (item.kind == EvidenceKind.photo ? 'image/jpeg' : 'video/mp4'),
+        'id': mediaId,
+        'mimeType': mimeType,
         'kind': item.kind.name,
-        'base64': base64Encode(bytes),
+        'byteSize': bytes.length,
+        'sha256': backend.sha256Of(bytes),
       });
     }
-
-    final response = await http
-        .post(
-          endpoint,
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'resident': {
-              'fullName': resident.fullName,
-              'phone': resident.phone,
-            },
-            'category': category,
-            'description': description,
-            'location': {
-              'latitude': position.latitude,
-              'longitude': position.longitude,
-              'accuracy': position.accuracy,
-            },
-            'attachments': attachments,
-          }),
-        )
-        .timeout(const Duration(seconds: 45));
-    if (response.statusCode != 201) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      throw StateError(
-        body?['error'] as String? ?? 'A central recusou o envio.',
+    if (!hasPhoto)
+      throw StateError('Inclua pelo menos uma foto da ocorrência.');
+    final session = await backend.invoke('occurrence-session', {
+      'occurrenceId': occurrenceId,
+      'idempotencyKey': idempotencyKey,
+      'resident': {
+        'fullName': resident.fullName,
+        'phone': _internationalPhone(resident.phone),
+        'referenceAddress': resident.referenceAddress,
+        'latitude': resident.latitude,
+        'longitude': resident.longitude,
+      },
+      'category': _categoryCode(category),
+      'description': description,
+      'latitude': position.latitude,
+      'longitude': position.longitude,
+      'accuracyM': position.accuracy,
+      'media': attachments,
+    });
+    if (session['alreadyReceived'] == true) {
+      final prior = session['occurrence'] as Map<String, dynamic>;
+      return OccurrenceReceipt(
+          id: prior['protocol'] as String,
+          receivedAt: DateTime.parse(prior['received_at'] as String));
+    }
+    for (final upload
+        in (session['uploads'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+      final id = upload['id'] as String;
+      await backend.upload(
+        Uri.parse(upload['signedUrl'] as String),
+        bytesById[id]!,
+        attachments.firstWhere((item) => item['id'] == id)['mimeType']
+            as String,
       );
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = await backend.invoke(
+        'occurrence-confirm', {'occurrenceId': session['occurrenceId']});
     return OccurrenceReceipt(
       id: body['id'] as String,
       receivedAt: DateTime.parse(body['receivedAt'] as String),
     );
   }
+
+  String _internationalPhone(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    return digits.startsWith('55') ? '+$digits' : '+55$digits';
+  }
+
+  String _categoryCode(String value) => switch (value) {
+        'Alagamento' => 'flood',
+        'Deslizamento' => 'landslide',
+        'Árvore ou via' => 'tree_or_road',
+        'Risco estrutural' => 'structural_risk',
+        _ => 'other',
+      };
 }
 
 class OccurrenceScreen extends StatefulWidget {
@@ -125,6 +153,13 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   bool sending = false;
   String? error;
   OccurrenceReceipt? receipt;
+  late String submissionId;
+
+  @override
+  void initState() {
+    super.initState();
+    submissionId = service.newId();
+  }
 
   @override
   void dispose() {
@@ -136,13 +171,17 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     try {
       final file = await picker.pickImage(
         source: source,
-        imageQuality: 82,
-        maxWidth: 1800,
+        imageQuality: 55,
+        maxWidth: 1280,
+        maxHeight: 1280,
       );
       if (file != null && mounted) {
         setState(() {
-          evidence
-              .add(OccurrenceEvidence(file: file, kind: EvidenceKind.photo));
+          evidence.add(OccurrenceEvidence(
+            id: service.newId(),
+            file: file,
+            kind: EvidenceKind.photo,
+          ));
           error = null;
         });
       }
@@ -156,12 +195,15 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     try {
       final file = await picker.pickVideo(
         source: source,
-        maxDuration: const Duration(seconds: 30),
+        maxDuration: const Duration(seconds: 20),
       );
       if (file != null && mounted) {
         setState(() {
-          evidence
-              .add(OccurrenceEvidence(file: file, kind: EvidenceKind.video));
+          evidence.add(OccurrenceEvidence(
+            id: service.newId(),
+            file: file,
+            kind: EvidenceKind.video,
+          ));
           error = null;
         });
       }
@@ -205,8 +247,8 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   }
 
   Future<void> send() async {
-    if (evidence.isEmpty) {
-      setState(() => error = 'Adicione pelo menos uma foto ou um vídeo.');
+    if (!evidence.any((item) => item.kind == EvidenceKind.photo)) {
+      setState(() => error = 'Adicione pelo menos uma foto da ocorrência.');
       return;
     }
     if (description.text.trim().length < 15) {
@@ -228,6 +270,7 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
         description: description.text.trim(),
         position: position!,
         evidence: evidence,
+        submissionId: submissionId,
       );
       if (mounted) setState(() => receipt = sent);
     } catch (exception) {
@@ -249,6 +292,7 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       category = categories.first.$1;
       receipt = null;
       error = null;
+      submissionId = service.newId();
     });
   }
 
@@ -301,7 +345,8 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
                   }).toList(),
                 ),
                 const SizedBox(height: 22),
-                const FormLabel(number: '2', text: 'Foto ou vídeo do risco'),
+                const FormLabel(
+                    number: '2', text: 'Foto do risco (obrigatória)'),
                 const SizedBox(height: 10),
                 EvidenceComposer(
                   evidence: evidence,

@@ -10,6 +10,14 @@
   <title>BluAlert</title>
 </head>
 <body>
+  <script>
+    // Remove o service worker legado que mantinha telas antigas do protótipo.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) registration.unregister();
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -56,14 +56,20 @@ void main() {
     );
 
     expect(find.text('Nome completo'), findsOneWidget);
+    expect(find.text('E-mail de acesso'), findsOneWidget);
+    expect(find.text('Senha da conta'), findsOneWidget);
     expect(find.text('Telefone para contato'), findsOneWidget);
-    expect(find.text('Usar minha localização atual'), findsOneWidget);
+    expect(find.text('Rua'), findsOneWidget);
+    expect(find.text('Número'), findsOneWidget);
+    expect(find.text('Usar minha localização atual'), findsNothing);
+    expect(find.textContaining('PIN'), findsNothing);
     expect(find.text('Nome do contato'), findsNothing);
   });
 
   testWidgets('ocorrência exige evidência, descrição e localização',
       (tester) async {
     const profile = ResidentProfile(
+      email: 'gustavo@example.com',
       fullName: 'Gustavo Deschamps',
       phone: '47999999999',
       referenceAddress: 'Blumenau',

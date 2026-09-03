@@ -187,6 +187,7 @@ function serveStatic(requestPath, response) {
   }
   response.writeHead(200, {
     'Content-Type': mimeTypes[path.extname(filePath)] || 'application/octet-stream',
+    'Cache-Control': 'no-store, max-age=0',
   });
   fs.createReadStream(filePath).pipe(response);
 }

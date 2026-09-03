@@ -30,8 +30,16 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+**/build/
 /coverage/
+**/node_modules/
+**/dist/
+**/.env
+/.dart-defines.json
+**/*.tsbuildinfo
+hs_err_pid*.log
+replay_pid*.log
+flutter_*.log
 
 # Symbolication related
 app.*.symbols
