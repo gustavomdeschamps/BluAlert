@@ -2,7 +2,11 @@
   "name": "blualert-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Servidor local do BluAlert para dados oficiais do AlertaBlu e versão web.",
-  "scripts": { "start": "node --use-system-ca server/app.js" },
-  "engines": { "node": ">=20" }
+  "description": "Servidor estatico local da build web do BluAlert. Nao consulta fontes oficiais nem recebe ocorrencias.",
+  "scripts": {
+    "start": "node server/app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

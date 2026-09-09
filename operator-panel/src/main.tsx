@@ -12,6 +12,42 @@ const categoryName: Record<string, string> = {
 };
 const priorityName = ['Sem classificação', 'Baixa', 'Moderada', 'Alta', 'Urgente', 'Crítica'];
 
+const BLUMENAU = { lat: -26.9194, lon: -49.0661 };
+
+/// Limite municipal oficial (IBGE, município 4202404). CORS aberto.
+const IBGE_BOUNDARY_URL =
+  'https://servicodados.ibge.gov.br/api/v3/malhas/municipios/4202404' +
+  '?formato=application/vnd.geo+json&qualidade=maxima';
+
+/// Estilo raster do OpenStreetMap.
+///
+/// Substitui o `demotiles.maplibre.org` que estava aqui antes: aquele é um
+/// servidor de **demonstração** da MapLibre, com um mapa-múndi de baixo detalhe
+/// e sem as ruas de Blumenau — não serve para operação e não é destinado a
+/// produção.
+///
+/// A atribuição do OpenStreetMap é obrigatória e é renderizada pelo próprio
+/// MapLibre a partir do campo `attribution`; não remova.
+/// Para trocar de provedor, defina VITE_MAP_TILE_URL e VITE_MAP_ATTRIBUTION.
+const tileUrl =
+  import.meta.env.VITE_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const tileAttribution =
+  import.meta.env.VITE_MAP_ATTRIBUTION || '© OpenStreetMap contributors';
+
+const OSM_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: [tileUrl],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: tileAttribution,
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
+
 function Login() {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState('');
   async function submit(event: React.FormEvent) {
@@ -67,7 +103,39 @@ function Operations() {
 
 function Map({items,selected,onSelect}:{items:QueueItem[];selected:string|null;onSelect:(id:string)=>void}) {
   const host = useRef<HTMLDivElement>(null); const map = useRef<maplibregl.Map | null>(null); const markers = useRef<maplibregl.Marker[]>([]);
-  useEffect(() => { if (!host.current || map.current) return; map.current = new maplibregl.Map({container:host.current, center:[-49.0661,-26.9194], zoom:12, style:'https://demotiles.maplibre.org/style.json'}); map.current.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-left'); return () => map.current?.remove(); }, []);
+  useEffect(() => {
+    if (!host.current || map.current) return;
+    map.current = new maplibregl.Map({
+      container: host.current,
+      center: [BLUMENAU.lon, BLUMENAU.lat],
+      zoom: 12,
+      // Prende a operação ao município: sem isto dá para afastar até o
+      // mapa-múndi, o que não ajuda o plantão e ainda consome tiles à toa.
+      maxBounds: [[-49.30, -27.12], [-48.92, -26.68]],
+      minZoom: 10.5,
+      maxZoom: 19,
+      style: OSM_STYLE,
+    });
+    map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
+    map.current.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+    // Limite municipal oficial do IBGE. Enquanto não carregar, nada é
+    // desenhado — jamais um polígono aproximado.
+    map.current.on('load', async () => {
+      try {
+        const response = await fetch(IBGE_BOUNDARY_URL);
+        if (!response.ok) return;
+        const geojson = await response.json();
+        map.current?.addSource('limite-municipal', { type: 'geojson', data: geojson });
+        map.current?.addLayer({
+          id: 'limite-municipal-linha', type: 'line', source: 'limite-municipal',
+          paint: { 'line-color': '#f15d2a', 'line-width': 2, 'line-opacity': 0.85 },
+        });
+      } catch {
+        // Sem limite desenhado o mapa continua utilizável; não é bloqueante.
+      }
+    });
+    return () => map.current?.remove();
+  }, []);
   useEffect(() => { markers.current.forEach(marker => marker.remove()); markers.current = items.map(item => { const el=document.createElement('button'); el.className=`map-marker p${item.effective_priority}${selected===item.id?' active':''}`; el.textContent=String(item.effective_priority); el.setAttribute('aria-label',`${categoryName[item.category]}, prioridade ${item.effective_priority}`); el.onclick=()=>onSelect(item.id); return new maplibregl.Marker({element:el}).setLngLat([item.longitude,item.latitude]).addTo(map.current!); }); }, [items,selected]);
   return <div className="map-wrap"><div className="map-label"><strong>Mapa operacional</strong><span>Blumenau e região do piloto</span></div><div ref={host} className="map" /></div>;
 }

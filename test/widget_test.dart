@@ -1,6 +1,9 @@
 import 'package:blualert/main.dart';
 import 'package:blualert/account_flow.dart';
 import 'package:blualert/occurrence_flow.dart';
+import 'package:blualert/queue/evidence_files_web.dart';
+import 'package:blualert/queue/queue_controller.dart';
+import 'package:blualert/queue/queue_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -98,8 +101,14 @@ void main() {
       phone: '47999999999',
       referenceAddress: 'Blumenau',
     );
+    final queue = QueueController.forTesting(
+      store: MemoryQueueStore(),
+      files: MemoryEvidenceFileStore(),
+    );
+    addTearDown(queue.dispose);
+
     await tester.pumpWidget(
-      const MaterialApp(home: OccurrenceScreen(profile: profile)),
+      MaterialApp(home: OccurrenceScreen(profile: profile, queue: queue)),
     );
 
     expect(find.text('Tirar foto'), findsOneWidget);
@@ -110,5 +119,56 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Capturar GPS agora'), findsOneWidget);
+  });
+
+  testWidgets('o envio exige revisão antes de sair do aparelho',
+      (tester) async {
+    const profile = ResidentProfile(
+      email: 'gustavo@example.com',
+      fullName: 'Gustavo Deschamps',
+      phone: '47999999999',
+      referenceAddress: 'Blumenau',
+    );
+    final queue = QueueController.forTesting(
+      store: MemoryQueueStore(),
+      files: MemoryEvidenceFileStore(),
+    );
+    addTearDown(queue.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: OccurrenceScreen(profile: profile, queue: queue)),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Revisar envio'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    // O botão é de revisão, não de envio direto: o passo de conferência é
+    // obrigatório antes de a ocorrência sair do aparelho.
+    expect(find.text('Revisar envio'), findsOneWidget);
+    expect(find.text('Enviar'), findsNothing);
+
+    // Sem foto, descrição e GPS, a revisão nem abre.
+    await tester.tap(find.text('Revisar envio'));
+    await tester.pumpAndSettle();
+    expect(find.text('Confirmar e enviar'), findsNothing);
+    expect(find.textContaining('Inclua pelo menos uma foto'), findsOneWidget);
+  });
+
+  testWidgets('a lista de registros começa vazia e é honesta sobre isso',
+      (tester) async {
+    final queue = QueueController.forTesting(
+      store: MemoryQueueStore(),
+      files: MemoryEvidenceFileStore(),
+    );
+    addTearDown(queue.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: QueueScreen(queue: queue)));
+    await tester.pump();
+
+    expect(find.text('Nenhum registro ainda'), findsOneWidget);
+    // Estado vazio não pode inventar contagem, alerta nem ocorrência de exemplo.
+    expect(find.textContaining('exemplo'), findsNothing);
   });
 }

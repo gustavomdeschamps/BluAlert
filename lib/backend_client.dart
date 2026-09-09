@@ -7,6 +7,29 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Converte um telefone brasileiro para o formato E.164 esperado pelo banco
+/// (`^\+[1-9][0-9]{9,14}$`).
+///
+/// A decisão é pelo comprimento, não pelo prefixo. Testar `startsWith('55')`
+/// corrompe números legítimos: o fixo `55 3333-4444` de São Paulo tem 10
+/// dígitos e começa com 55, e viraria `+5533334444` — um número diferente, que
+/// mesmo assim passa na validação do banco e chega errado à equipe.
+///
+/// - 10 ou 11 dígitos: número nacional (DDD + assinante) → recebe `+55`.
+/// - 12 ou 13 dígitos começando com 55: já traz o código do país.
+/// - Qualquer outro comprimento é devolvido com `+` para que a validação
+///   do servidor recuse de forma visível, em vez de aceitar algo inventado.
+String normalizeBrazilianPhone(String value) {
+  var digits = value.replaceAll(RegExp(r'\D'), '');
+  // Prefixo internacional discado (00) ou já em E.164.
+  if (digits.startsWith('00')) digits = digits.substring(2);
+  if (digits.length == 10 || digits.length == 11) return '+55$digits';
+  if ((digits.length == 12 || digits.length == 13) && digits.startsWith('55')) {
+    return '+$digits';
+  }
+  return '+$digits';
+}
+
 class BackendUnavailable implements Exception {
   const BackendUnavailable(this.message);
   final String message;
@@ -48,6 +71,41 @@ class BackendClient {
 
   bool get isConfigured => supabaseUrl.isNotEmpty && anonKey.isNotEmpty;
 
+  /// Tenta reaproveitar a sessão guardada no aparelho.
+  ///
+  /// Devolve `null` quando não há sessão utilizável — sessão ausente, expirada
+  /// sem refresh válido, ou backend indisponível. Nunca lança: a abertura do
+  /// aplicativo não pode quebrar por causa de rede, e cair na tela de login é
+  /// sempre um destino seguro.
+  Future<bool> hasRestorableSession() async {
+    if (!isConfigured) return false;
+    try {
+      await session();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Encerra a sessão local. O token de acesso continua válido no servidor até
+  /// expirar, por isso também pedimos a revogação — sem falhar se ela não vier.
+  Future<void> signOut() async {
+    final current = await _readSession();
+    await _clearSession();
+    if (current == null || !isConfigured) return;
+    try {
+      await _http.post(
+        Uri.parse('$supabaseUrl/auth/v1/logout'),
+        headers: {
+          'apikey': anonKey,
+          'Authorization': 'Bearer ${current.accessToken}',
+        },
+      ).timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // A sessão local já foi apagada; a revogação remota é o melhor esforço.
+    }
+  }
+
   Future<BackendSession> session() async {
     if (!isConfigured) {
       throw const BackendUnavailable(
@@ -57,8 +115,9 @@ class BackendClient {
     final current = await _readSession();
     if (current != null &&
         current.expiresAt
-            .isAfter(DateTime.now().add(const Duration(minutes: 2))))
+            .isAfter(DateTime.now().add(const Duration(minutes: 2)))) {
       return current;
+    }
     if (current != null) {
       try {
         return await _refresh(current.refreshToken);
@@ -216,8 +275,9 @@ class BackendClient {
           body: jsonEncode({'refresh_token': refreshToken}),
         )
         .timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300)
+    if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const BackendUnavailable('Sessão expirada.');
+    }
     return _saveAuthResponse(_decode(response.body));
   }
 
@@ -289,10 +349,7 @@ class BackendClient {
     }
   }
 
-  String _internationalPhone(String value) {
-    final digits = value.replaceAll(RegExp(r'\D'), '');
-    return digits.startsWith('55') ? '+$digits' : '+55$digits';
-  }
+  String _internationalPhone(String value) => normalizeBrazilianPhone(value);
 
   String _authError(Map<String, dynamic> body) {
     final code = body['error_code']?.toString();

@@ -37,6 +37,11 @@ devtools_options.yaml
 **/dist/
 **/.env
 /.dart-defines.json
+
+# Dados operacionais locais: nunca podem ser versionados.
+/server/data/
+/supabase/.branches/
+
 **/*.tsbuildinfo
 hs_err_pid*.log
 replay_pid*.log

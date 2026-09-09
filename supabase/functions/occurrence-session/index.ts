@@ -1,11 +1,12 @@
-import { corsHeaders } from '../_shared/cors.ts';
+import { corsHeadersFor } from '../_shared/cors.ts';
 import { authenticatedUser, json } from '../_shared/client.ts';
 
 const categories = new Set(['flood', 'landslide', 'tree_or_road', 'structural_risk', 'other']);
 const photoTypes = new Set(['image/jpeg', 'image/webp']);
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const cors = corsHeadersFor(request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   try {
     const { client, user } = await authenticatedUser(request);
     const body = await request.json();
@@ -19,14 +20,14 @@ Deno.serve(async (request) => {
     if (media.length < 1 || media.length > 4 || !media.some((item: any) => item.kind === 'photo')) throw new Error('PHOTO_REQUIRED');
 
     const { data: config } = await client.from('remote_config').select('*').single();
-    if (!config?.uploads_enabled) return json({ error: 'RECEIVING_DISABLED' }, 503);
+    if (!config?.uploads_enabled) return json({ error: 'RECEIVING_DISABLED' }, 503, cors);
     const sinceHour = new Date(Date.now() - 3600000).toISOString();
     const sinceDay = new Date(Date.now() - 86400000).toISOString();
     const [{ count: hourCount }, { count: dayCount }] = await Promise.all([
       client.from('occurrences').select('*', { count: 'exact', head: true }).eq('reporter_id', user.id).gte('created_at', sinceHour),
       client.from('occurrences').select('*', { count: 'exact', head: true }).eq('reporter_id', user.id).gte('created_at', sinceDay),
     ]);
-    if ((hourCount ?? 0) >= config.hourly_report_limit || (dayCount ?? 0) >= config.daily_report_limit) return json({ error: 'RATE_LIMITED' }, 429);
+    if ((hourCount ?? 0) >= config.hourly_report_limit || (dayCount ?? 0) >= config.daily_report_limit) return json({ error: 'RATE_LIMITED' }, 429, cors);
 
     const resident = body.resident ?? {};
     const fullName = String(resident.fullName ?? '').trim();
@@ -54,8 +55,25 @@ Deno.serve(async (request) => {
       status: 'uploading',
     }, { onConflict: 'reporter_id,idempotency_key', ignoreDuplicates: true }).select('id,status,received_at,protocol').maybeSingle();
     if (occurrenceError) throw occurrenceError;
-    const { data: existing } = occurrence ? { data: occurrence } : await client.from('occurrences').select('id,status,received_at,protocol').eq('reporter_id', user.id).eq('idempotency_key', idempotencyKey).single();
-    if (existing.status === 'received') return json({ alreadyReceived: true, occurrence: existing });
+    // `ignoreDuplicates` devolve linha vazia quando a ocorrência já existia:
+    // nesse caso relemos a linha original em vez de confiar no retorno do upsert.
+    let existing = occurrence;
+    if (!existing) {
+      const { data: prior, error: priorError } = await client
+        .from('occurrences')
+        .select('id,status,received_at,protocol')
+        .eq('reporter_id', user.id)
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle();
+      if (priorError) throw priorError;
+      if (!prior) throw new Error('OCCURRENCE_NOT_PERSISTED');
+      existing = prior;
+    }
+    // Qualquer estado além de `uploading` significa que a central já registrou
+    // o recebimento; reenviar não pode duplicar nem regredir a ocorrência.
+    if (existing.status !== 'draft' && existing.status !== 'uploading') {
+      return json({ alreadyReceived: true, occurrence: existing }, 200, cors);
+    }
 
     const uploads = [];
     for (const item of media) {
@@ -74,10 +92,10 @@ Deno.serve(async (request) => {
       if (signedError) throw signedError;
       uploads.push({ id: mediaId, path: objectPath, signedUrl: signed.signedUrl });
     }
-    return json({ occurrenceId: existing.id, uploads }, 201);
+    return json({ occurrenceId: existing.id, uploads }, 201, cors);
   } catch (error) {
     const code = error instanceof Error ? error.message : 'UNKNOWN';
     const status = code === 'UNAUTHORIZED' ? 401 : 400;
-    return json({ error: code }, status);
+    return json({ error: code }, status, cors);
   }
 });

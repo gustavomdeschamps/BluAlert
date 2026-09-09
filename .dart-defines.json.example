@@ -1,0 +1,5 @@
+{
+  "_comentario": "Copie para .dart-defines.json e preencha. Somente a URL pública e a chave anon do projeto. A chave service_role NUNCA entra aqui: ela dá acesso total ao banco ignorando RLS e o arquivo compilado vai para o aparelho e para o navegador.",
+  "SUPABASE_URL": "https://SEU_PROJECT_REF.supabase.co",
+  "SUPABASE_ANON_KEY": "SUA_CHAVE_ANON"
+}

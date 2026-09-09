@@ -2,18 +2,41 @@
 
 Aplicativo móvel de alertas e orientação da Defesa Civil para Blumenau. O projeto prioriza decisões rápidas em situações de risco e mantém informações essenciais disponíveis mesmo sem internet, com uma experiência preparada para futura comunicação via LoRa.
 
+> **VERSÃO PILOTO.** O canal digital está em teste e não substitui a central de
+> emergência. Nenhuma equipe é acionada automaticamente pelo aplicativo. Em
+> risco imediato, ligue **199** (Defesa Civil) ou **193** (Bombeiros).
+
 ## O que já funciona
 
-- abertura única com animação da nova marca, rio e identidade própria de Blumenau;
-- cadastro e acesso na mesma tela, com nome, telefone, localização e PIN;
-- acesso protegido por PIN, com dados sensíveis no armazenamento seguro do Android;
-- registro de ocorrência com foto obrigatória de até 800 KB, vídeo opcional de até 20 segundos e 10 MB, descrição e GPS;
-- upload direto e autenticado para o Storage, com idempotência e confirmação final do backend;
-- mapa real da região atual, mediante autorização explícita de localização;
-- leitura da situação oficial publicada pelo AlertaBlu, sem inventar dados quando a fonte estiver indisponível;
-- atalhos reais para Defesa Civil (199), Bombeiros (193) e SAMU (192);
-- guias de prevenção disponíveis no aparelho;
-- layout responsivo para Android e web, com identidade visual própria do BluAlert.
+- abertura com animação da marca, respeitando "reduzir movimento";
+- cadastro por e-mail e senha, com confirmação por e-mail, reenvio com contagem
+  regressiva e restauração de sessão em aberturas seguintes;
+- registro de ocorrência em fila **offline-first**: a ocorrência é gravada no
+  aparelho e enviada sozinha quando houver conexão, com recuo exponencial e
+  limite de tentativas;
+- foto obrigatória comprimida para caber em 800 KB **sem descer abaixo do piso
+  de legibilidade** (1024 px, qualidade 62); vídeo opcional de até 20 segundos e
+  10 MB, recusado antes de gastar dados se ultrapassar o limite;
+- upload por URL assinada para Storage privado, com idempotência por UUID
+  gerado no cliente — reenviar não duplica a ocorrência;
+- estados de envio distintos e honestos: *salvo no aparelho*, *aguardando
+  conexão*, *enviando mídia*, *aguardando confirmação*, *recebido pela central*
+  e *precisa da sua ação*. **Nenhum estado local é chamado de "enviado"**;
+- mapa real da região, mediante autorização explícita de localização;
+- leitura da situação publicada pelo AlertaBlu, sem reutilizar valores antigos
+  quando a fonte estiver indisponível;
+- atalhos reais para Defesa Civil (199), Bombeiros (193) e SAMU (192), com aviso
+  visível se o discador não abrir;
+- guias de prevenção disponíveis no aparelho.
+
+### Limites conhecidos
+
+- **Android é o destino real do piloto.** No navegador, a fila e as evidências
+  ficam em memória: fechar a aba perde o que ainda não foi confirmado. A
+  interface avisa isso na revisão do envio.
+- A promoção para `operator` e `supervisor` é manual, pelo SQL Editor.
+- O build de release ainda usa a chave de depuração; configure uma chave própria
+  antes de distribuir.
 
 ## Executar
 
@@ -31,18 +54,35 @@ O endereço mostrado no terminal como `Dart VM Service` pertence apenas ao
 depurador. Não abra esse link na aba interna do VS Code: o BluAlert é executado
 na janela do Chrome aberta automaticamente pelo comando.
 
-### Versão web com dados oficiais
-
-O navegador não permite consultar diretamente outro domínio. Por isso, a versão web inclui um servidor local que repassa somente a situação publicada pelo AlertaBlu:
+### Versão web
 
 ```bash
 flutter build web --release --pwa-strategy=none
 npm start
 ```
 
-Depois, abra `http://127.0.0.1:3000`. Se o AlertaBlu estiver fora do ar, o aplicativo informa indisponibilidade e não reutiliza valores antigos.
+Depois, abra `http://127.0.0.1:3000`. O `server/` é **apenas** um servidor de
+arquivos estáticos: não consulta fontes oficiais nem recebe ocorrências.
 
-O servidor local permanece apenas como ponte para a situação oficial do AlertaBlu na versão web. Ocorrências usam o backend Supabase descrito em `docs/backend-setup.md`.
+### Dados oficiais
+
+A leitura das fontes oficiais vive na Edge Function `situation`, que serve
+Android e web pelo mesmo caminho. Ela existe porque nem a ANA nem a Defesa Civil
+enviam cabeçalho de CORS, e porque o servidor da Prefeitura entrega uma **cadeia
+TLS incompleta** que Dart e Node não conseguem completar sozinhos — era esta a
+causa do antigo "Dados oficiais indisponíveis".
+
+| Dado | Fonte | Natureza |
+|---|---|---|
+| Nível do rio | ANA, estação 83800010 | Medição horária |
+| Estágio e avisos | Defesa Civil de Blumenau | Declaração oficial |
+| Tempo e previsão | Open-Meteo | Previsão de modelo (~11 km) |
+| Bairros | Prefeitura (ArcGIS) | Geodado oficial |
+| Limite municipal | IBGE | Geodado oficial |
+| Mapa | OpenStreetMap | Atribuição obrigatória |
+
+Detalhes de licença, limites, cache, comportamento de falha e o que continua
+indisponível estão em **`docs/fontes-de-dados.md`**.
 
 Informe somente a URL pública e a chave `anon` do projeto ao executar. A chave `service_role` nunca entra no aplicativo:
 
@@ -66,8 +106,48 @@ Para gerar os arquivos destinados ao Cloudflare Pages, use `npm run build`. O di
 
 O serviço opcional em `ai-triage/` roda no notebook da operação com Ollama. Ele sugere prioridade e justificativa; não possui função capaz de fechar ou ocultar ocorrências. Copie `.env.example` para `.env`, use uma conta com papel `operator` ou `supervisor` e execute `npm install` seguido de `npm start`.
 
-Na versão web, o perfil fica guardado no armazenamento local do navegador. No Android, o perfil e o PIN usam o cofre seguro do sistema. A localização só é solicitada durante o cadastro ou quando o usuário pede para atualizar o mapa.
+No Android, o perfil e os tokens de sessão ficam no cofre seguro do sistema
+(`flutter_secure_storage`). No navegador, onde não existe cofre equivalente, eles
+ficam no armazenamento local — mais um motivo para o piloto em campo usar o
+aplicativo no celular. A senha nunca é gravada. A localização só é solicitada no
+cadastro, no registro de uma ocorrência ou quando a pessoa pede para atualizar o
+mapa.
+
+## Validação
+
+```powershell
+flutter pub get
+dart run build_runner build      # código gerado do drift (fila local)
+flutter analyze
+flutter test
+flutter build web --release --pwa-strategy=none
+```
+
+Roteiro manual mínimo antes de liberar uma versão:
+
+1. cadastrar, confirmar o e-mail e entrar; fechar e reabrir o aplicativo — deve
+   entrar direto, sem pedir a senha;
+2. **ativar o modo avião**, registrar uma ocorrência com foto e enviar — precisa
+   ficar em *aguardando conexão*, nunca em "enviado";
+3. desligar o modo avião — a ocorrência deve sair sozinha e só então exibir
+   *recebido pela central*, com protocolo;
+4. repetir o envio da mesma ocorrência — não pode duplicar no painel;
+5. negar a permissão de localização — precisa aparecer instrução acionável, não
+   uma tela travada;
+6. tocar em **199** — o discador precisa abrir; se não abrir, o número tem de
+   aparecer para digitação manual.
 
 ## Estrutura
 
-`lib/account_flow.dart` contém abertura, cadastro e acesso; `lib/main.dart` reúne painel, mapa, contatos e orientações. Os arquivos em `android/` geram o APK, `web/` contém a versão instalável no navegador e `server/` fornece a ponte de leitura para a fonte oficial na versão web.
+- `lib/account_flow.dart` — abertura, cadastro, acesso e recuperação de perfil;
+- `lib/emergency.dart` — configuração do piloto, aviso de VERSÃO PILOTO e
+  ligações de emergência;
+- `lib/queue/` — fila offline: modelos, banco SQLite (drift), armazenamento das
+  evidências, compressão e o motor de envio com recuo exponencial;
+- `lib/occurrence_flow.dart` — formulário, revisão e acompanhamento do estado
+  real de cada envio;
+- `lib/main.dart` — navegação, início, mapa, emergência e orientações;
+- `supabase/` — migrations, políticas de RLS e Edge Functions;
+- `operator-panel/` — painel de operações;
+- `server/` — ponte de leitura da fonte oficial e servidor estático da build web.
+  **Não recebe ocorrências**: elas vão direto ao Supabase, autenticadas.

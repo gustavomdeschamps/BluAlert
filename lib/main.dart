@@ -1,19 +1,26 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'account_flow.dart';
+import 'data/map_tiles.dart';
+import 'data/municipal_geo.dart';
+import 'data/situation_repository.dart';
+import 'emergency.dart';
 import 'occurrence_flow.dart';
+import 'queue/queue_controller.dart';
+import 'situation_panel.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // A configuração do piloto é lida em segundo plano: até ela chegar vale o
+  // fallback seguro (modo piloto ligado, 199 visível), então a interface nunca
+  // fica bloqueada esperando o servidor.
+  unawaited(PilotConfigService().load());
   runApp(const BluAlertApp());
 }
 
@@ -148,9 +155,29 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int index = 0;
+  QueueController? queue;
+  bool queueFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _openQueue();
+  }
+
+  Future<void> _openQueue() async {
+    try {
+      final controller = await QueueController.instance();
+      if (mounted) setState(() => queue = controller);
+    } catch (_) {
+      // Sem fila local o registro de ocorrência não pode funcionar com
+      // segurança, mas o 199 e as orientações continuam disponíveis.
+      if (mounted) setState(() => queueFailed = true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final controller = queue;
     final pages = [
       HomeScreen(
         profile: widget.profile,
@@ -158,7 +185,11 @@ class _AppShellState extends State<AppShell> {
         onAccount: () => _showAccount(context),
       ),
       const RealMapScreen(),
-      OccurrenceScreen(profile: widget.profile),
+      if (controller != null)
+        OccurrenceScreen(profile: widget.profile, queue: controller)
+      else
+        QueueUnavailableScreen(failed: queueFailed),
+      const EmergencyScreen(),
       const GuidanceScreen(),
     ];
 
@@ -185,6 +216,11 @@ class _AppShellState extends State<AppShell> {
             icon: Icon(Icons.add_a_photo_outlined),
             selectedIcon: Icon(Icons.add_a_photo_rounded, color: orangeDark),
             label: 'Registrar',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.phone_in_talk_outlined),
+            selectedIcon: Icon(Icons.phone_in_talk_rounded, color: danger),
+            label: 'Emergência',
           ),
           NavigationDestination(
             icon: Icon(Icons.shield_outlined),
@@ -270,6 +306,24 @@ class _AppShellState extends State<AppShell> {
                     : widget.profile.referenceAddress,
               ),
               const SizedBox(height: 12),
+              if (queue != null)
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => QueueScreen(queue: queue!),
+                        ),
+                      );
+                    },
+                    style: FilledButton.styleFrom(backgroundColor: navy),
+                    icon: const Icon(Icons.inbox_rounded),
+                    label: const Text('Meus registros'),
+                  ),
+                ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -290,6 +344,48 @@ class _AppShellState extends State<AppShell> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Mostrada enquanto a fila local abre — e se ela não abrir.
+///
+/// Sem fila não há como garantir que a ocorrência sobreviva a uma falha de
+/// rede, então preferimos bloquear o registro a aceitar algo que pode sumir.
+/// O 199 continua acessível, que é o que importa em risco imediato.
+class QueueUnavailableScreen extends StatelessWidget {
+  const QueueUnavailableScreen({required this.failed, super.key});
+
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!failed) {
+      return const Center(child: CircularProgressIndicator(color: orange));
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.sd_card_alert_outlined, size: 44, color: danger),
+            const SizedBox(height: 16),
+            Text('Registro indisponível neste aparelho',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            const Text(
+              'Não foi possível preparar o armazenamento local das ocorrências. '
+              'Sem ele, um registro poderia se perder antes de chegar à central.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: muted, fontSize: 12, height: 1.45),
+            ),
+            const SizedBox(height: 20),
+            const PilotNotice(),
+          ],
         ),
       ),
     );
@@ -444,23 +540,27 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<OfficialSituation> situation;
+  final repository = SituationRepository();
 
   @override
   void initState() {
     super.initState();
-    situation = OfficialSituationService().load();
+    repository.refresh();
   }
 
-  void refresh() => setState(() {
-        situation = OfficialSituationService().load();
-      });
+  @override
+  void dispose() {
+    repository.dispose();
+    super.dispose();
+  }
+
+  Future<void> refresh() => repository.refresh(force: true);
 
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       color: orange,
-      onRefresh: () async => refresh(),
+      onRefresh: refresh,
       child: CustomScrollView(
         slivers: [
           const SliverToBoxAdapter(child: CivilDefenseHeader()),
@@ -511,31 +611,20 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Dados publicados pela Defesa Civil municipal',
+                            'Defesa Civil de Blumenau, ANA e previsão de modelo',
                             style: TextStyle(color: muted, fontSize: 12),
                           ),
                         ],
                       ),
                     ),
-                    IconButton.outlined(
-                      tooltip: 'Atualizar dados',
-                      onPressed: refresh,
-                      icon: const Icon(Icons.refresh_rounded),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 14),
-                FutureBuilder<OfficialSituation>(
-                  future: situation,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const OfficialDataLoading();
-                    }
-                    if (snapshot.hasData) {
-                      return OfficialSituationCard(situation: snapshot.data!);
-                    }
-                    return OfficialDataUnavailable(onRetry: refresh);
-                  },
+                SituationPanel(
+                  repository: repository,
+                  residentLatitude: widget.profile.latitude,
+                  residentLongitude: widget.profile.longitude,
+                  onOpenSource: (url) => openExternal(context, Uri.parse(url)),
                 ),
                 const SizedBox(height: 24),
                 const SectionHeading(
@@ -543,6 +632,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'O que você precisa?',
                 ),
                 const SizedBox(height: 12),
+                PriorityAction(
+                  icon: Icons.phone_in_talk_rounded,
+                  title: 'Falar com a emergência agora',
+                  detail: 'Defesa Civil, Bombeiros e SAMU em uma ligação',
+                  color: danger,
+                  onTap: () => widget.onNavigate(3),
+                ),
+                const SizedBox(height: 10),
                 PriorityAction(
                   icon: Icons.my_location_rounded,
                   title: 'Ver minha localização no mapa',
@@ -564,7 +661,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'Como agir com segurança',
                   detail: 'Orientações para chuva, enchente e deslizamento',
                   color: navy,
-                  onTap: () => widget.onNavigate(3),
+                  onTap: () => widget.onNavigate(4),
                 ),
                 const SizedBox(height: 22),
                 const SourceNotice(),
@@ -577,233 +674,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class OfficialSituation {
-  const OfficialSituation({
-    required this.riverLevel,
-    required this.riverStatus,
-    required this.publishedAt,
-  });
-
-  final String riverLevel;
-  final String riverStatus;
-  final String publishedAt;
-}
-
-class OfficialSituationService {
-  Future<OfficialSituation> load() async {
-    final endpoint = kIsWeb ? Uri.base.resolve('/api/situacao') : alertaBluUri;
-    final response = await http.get(endpoint, headers: const {
-      'Accept': 'application/json, text/html'
-    }).timeout(const Duration(seconds: 12));
-    if (response.statusCode != 200) {
-      throw StateError('AlertaBlu respondeu ${response.statusCode}');
-    }
-
-    if (kIsWeb) {
-      final payload = jsonDecode(response.body) as Map<String, dynamic>;
-      return OfficialSituation(
-        riverLevel: payload['riverLevel'] as String,
-        riverStatus: payload['riverStatus'] as String,
-        publishedAt: payload['publishedAt'] as String,
-      );
-    }
-
-    final plainText = response.body
-        .replaceAll(
-            RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), ' ')
-        .replaceAll(
-            RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'<[^>]+>'), ' ')
-        .replaceAll('&ccedil;', 'ç')
-        .replaceAll('&atilde;', 'ã')
-        .replaceAll('&aacute;', 'á')
-        .replaceAll('&iacute;', 'í')
-        .replaceAll('&uacute;', 'ú')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
-
-    final level = RegExp(
-      r'N[ií]vel do Rio\s*\|?\s*([0-9]+[,.][0-9]+\s*m)',
-      caseSensitive: false,
-    ).firstMatch(plainText);
-    final publication = RegExp(
-      r'Situa[çc][aã]o publicada em\s*([0-9]{2}/[0-9]{2}/[0-9]{4})',
-      caseSensitive: false,
-    ).firstMatch(plainText);
-    final status = RegExp(
-      r'Itaja[ií]-A[çc]u\s*\|?\s*(Normalidade|Observa[çc][aã]o|Aten[çc][aã]o|Alerta M[aá]ximo|Alerta)',
-      caseSensitive: false,
-    ).firstMatch(plainText);
-
-    if (level == null || status == null) {
-      throw const FormatException('Situação oficial não localizada');
-    }
-    return OfficialSituation(
-      riverLevel: level.group(1)!.replaceAll(' ', ''),
-      riverStatus: status.group(1)!,
-      publishedAt: publication?.group(1) ?? 'horário informado na fonte',
-    );
-  }
-}
-
-class OfficialSituationCard extends StatelessWidget {
-  const OfficialSituationCard({required this.situation, super.key});
-  final OfficialSituation situation;
-
-  @override
-  Widget build(BuildContext context) {
-    final normal = situation.riverStatus.toLowerCase() == 'normalidade';
-    final stateColor = normal ? success : danger;
-    return Card(
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: navyDark,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(17)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.water_rounded, color: Color(0xFF78C8EE)),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Rio Itajaí-Açu',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: stateColor,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    situation.riverStatus.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 9,
-                      letterSpacing: .8,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        situation.riverLevel,
-                        style: const TextStyle(
-                          color: ink,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 34,
-                          letterSpacing: -1.2,
-                        ),
-                      ),
-                      Text(
-                        'Publicado em ${situation.publishedAt}',
-                        style: const TextStyle(color: muted, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => openExternal(context, alertaBluUri),
-                  icon: const Icon(Icons.open_in_new_rounded, size: 17),
-                  label: const Text('Fonte'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class OfficialDataLoading extends StatelessWidget {
-  const OfficialDataLoading({super.key});
-
-  @override
-  Widget build(BuildContext context) => const Card(
-        child: Padding(
-          padding: EdgeInsets.all(22),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 22,
-                height: 22,
-                child:
-                    CircularProgressIndicator(strokeWidth: 2.5, color: orange),
-              ),
-              SizedBox(width: 14),
-              Text('Consultando o AlertaBlu...'),
-            ],
-          ),
-        ),
-      );
-}
-
-class OfficialDataUnavailable extends StatelessWidget {
-  const OfficialDataUnavailable({required this.onRetry, super.key});
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.cloud_off_rounded, color: orangeDark),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Dados oficiais indisponíveis',
-                      style: TextStyle(fontWeight: FontWeight.w900, color: ink),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'O app não exibirá um valor antigo ou estimado. Tente novamente ou consulte o AlertaBlu.',
-                style: TextStyle(fontSize: 12, color: muted),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                children: [
-                  OutlinedButton(
-                      onPressed: onRetry,
-                      child: const Text('Tentar novamente')),
-                  TextButton(
-                    onPressed: () => openExternal(context, alertaBluUri),
-                    child: const Text('Abrir fonte oficial'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
-}
-
 class RealMapScreen extends StatefulWidget {
   const RealMapScreen({super.key});
 
@@ -812,18 +682,57 @@ class RealMapScreen extends StatefulWidget {
 }
 
 class _RealMapScreenState extends State<RealMapScreen> {
-  static const blumenauCenter = LatLng(-26.9194, -49.0661);
+  static const blumenauCenter = LatLng(
+    BlumenauMapBounds.centerLatitude,
+    BlumenauMapBounds.centerLongitude,
+  );
+
+  /// Retângulo que prende a navegação ao município. Sem isto a pessoa consegue
+  /// afastar até o mapa-múndi, o que não serve a nada num aplicativo municipal
+  /// e ainda consome tiles à toa.
+  static final blumenauBounds = LatLngBounds(
+    const LatLng(
+      BlumenauMapBounds.southLatitude,
+      BlumenauMapBounds.westLongitude,
+    ),
+    const LatLng(
+      BlumenauMapBounds.northLatitude,
+      BlumenauMapBounds.eastLongitude,
+    ),
+  );
+
   final mapController = MapController();
+  final tileSource = const ConfiguredMapTileProvider().active;
+
   Position? currentPosition;
   LocationPermission? permission;
   bool locating = false;
   String? locationMessage;
   StreamSubscription<Position>? positionSubscription;
 
+  /// Limite municipal oficial. Enquanto não carregar, nada é desenhado — nunca
+  /// um polígono aproximado.
+  List<List<LatLng>> boundaryRings = const [];
+  String? boundarySource;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => locateUser());
+    _loadBoundary();
+  }
+
+  Future<void> _loadBoundary() async {
+    final result = await IbgeMunicipalGeoProvider().loadMunicipalBoundary();
+    if (!mounted || !result.hasData) return;
+    setState(() {
+      boundaryRings = result.data!.rings
+          .map((ring) => ring
+              .map((point) => LatLng(point.latitude, point.longitude))
+              .toList())
+          .toList();
+      boundarySource = result.data!.origin.sourceName;
+    });
   }
 
   @override
@@ -903,22 +812,40 @@ class _RealMapScreenState extends State<RealMapScreen> {
             children: [
               FlutterMap(
                 mapController: mapController,
-                options: const MapOptions(
+                options: MapOptions(
                   initialCenter: blumenauCenter,
-                  initialZoom: 12.4,
-                  minZoom: 3,
-                  maxZoom: 19,
-                  interactionOptions: InteractionOptions(
+                  initialZoom: BlumenauMapBounds.initialZoom,
+                  // Zoom mínimo mantém Blumenau em contexto; o máximo permite
+                  // identificar uma residência ou o ponto de uma ocorrência.
+                  minZoom: BlumenauMapBounds.minimumZoom,
+                  maxZoom: BlumenauMapBounds.maximumZoom,
+                  cameraConstraint:
+                      CameraConstraint.contain(bounds: blumenauBounds),
+                  interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate: tileSource.urlTemplate,
+                    // Identificação exigida pela política de uso do OSM.
                     userAgentPackageName: 'br.com.blualert.blualert',
-                    maxZoom: 19,
+                    maxZoom: tileSource.maxZoom.toDouble(),
+                    // Carrega apenas a área visível, sem pré-carga em massa.
+                    panBuffer: 1,
                   ),
+                  if (boundaryRings.isNotEmpty)
+                    PolygonLayer(
+                      polygons: [
+                        for (final ring in boundaryRings)
+                          Polygon(
+                            points: ring,
+                            borderColor: navy.withValues(alpha: .55),
+                            borderStrokeWidth: 2,
+                            color: navy.withValues(alpha: .04),
+                          ),
+                      ],
+                    ),
                   if (userPoint != null)
                     CircleLayer(
                       circles: [
@@ -943,9 +870,21 @@ class _RealMapScreenState extends State<RealMapScreen> {
                         ),
                       ],
                     ),
-                  const RichAttributionWidget(
+                  // Atribuição cartográfica obrigatória. Nunca pode ser
+                  // ocultada: é condição de uso do OpenStreetMap.
+                  RichAttributionWidget(
+                    alignment: AttributionAlignment.bottomLeft,
                     attributions: [
-                      TextSourceAttribution('OpenStreetMap contributors'),
+                      TextSourceAttribution(
+                        tileSource.attribution,
+                        onTap: () => openExternal(
+                          context,
+                          Uri.parse(tileSource.attributionUrl),
+                        ),
+                      ),
+                      if (boundarySource != null)
+                        TextSourceAttribution(
+                            'Limite municipal: $boundarySource'),
                     ],
                   ),
                 ],
@@ -1259,8 +1198,10 @@ class EmergencyScreen extends StatelessWidget {
                 const SizedBox(height: 22),
                 const SectionHeading(
                   eyebrow: 'OCORRÊNCIAS NÃO EMERGENCIAIS',
-                  title: 'Canal oficial',
+                  title: 'Canais disponíveis',
                 ),
+                const SizedBox(height: 10),
+                const PilotNotice(),
                 const SizedBox(height: 10),
                 Card(
                   child: Padding(
@@ -1269,13 +1210,13 @@ class EmergencyScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Registro com foto e localização',
+                          'Canal oficial da Prefeitura',
                           style: TextStyle(
                               fontWeight: FontWeight.w900, color: ink),
                         ),
                         const SizedBox(height: 6),
                         const Text(
-                          'O BluAlert não simula o envio. Use o aplicativo oficial AlertaBlu, que encaminha a ocorrência à estrutura municipal.',
+                          'O AlertaBlu é o canal já integrado à estrutura municipal. Use-o sempre que precisar de um registro com encaminhamento garantido.',
                           style: TextStyle(fontSize: 12),
                         ),
                         const SizedBox(height: 12),
@@ -1301,7 +1242,7 @@ class EmergencyScreen extends StatelessWidget {
       );
 }
 
-class EmergencyCallCard extends StatelessWidget {
+class EmergencyCallCard extends StatefulWidget {
   const EmergencyCallCard({
     required this.number,
     required this.service,
@@ -1318,10 +1259,23 @@ class EmergencyCallCard extends StatelessWidget {
   final Color color;
 
   @override
+  State<EmergencyCallCard> createState() => _EmergencyCallCardState();
+}
+
+class _EmergencyCallCardState extends State<EmergencyCallCard> {
+  bool failed = false;
+
+  Future<void> _call() async {
+    final outcome = await callEmergency(widget.number);
+    if (!mounted) return;
+    setState(() => failed = outcome == EmergencyCallOutcome.failed);
+  }
+
+  @override
   Widget build(BuildContext context) => Card(
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () => launchUrl(Uri(scheme: 'tel', path: number)),
+          onTap: _call,
           child: Padding(
             padding: const EdgeInsets.all(15),
             child: Row(
@@ -1330,10 +1284,10 @@ class EmergencyCallCard extends StatelessWidget {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: color,
+                    color: widget.color,
                     borderRadius: BorderRadius.circular(13),
                   ),
-                  child: Icon(icon, color: Colors.white),
+                  child: Icon(widget.icon, color: Colors.white),
                 ),
                 const SizedBox(width: 13),
                 Expanded(
@@ -1343,28 +1297,41 @@ class EmergencyCallCard extends StatelessWidget {
                       Row(
                         children: [
                           Text(
-                            service,
+                            widget.service,
                             style: const TextStyle(
                                 fontWeight: FontWeight.w900, color: ink),
                           ),
                           const Spacer(),
                           Text(
-                            number,
+                            widget.number,
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w900,
-                              color: color,
+                              color: widget.color,
                             ),
                           ),
                         ],
                       ),
-                      Text(useWhen,
+                      Text(widget.useWhen,
                           style: const TextStyle(fontSize: 11, color: muted)),
+                      if (failed)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 5),
+                          child: Text(
+                            'O discador não abriu. Ligue manualmente para '
+                            '${widget.number}.',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: danger,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 5),
-                Icon(Icons.phone_rounded, color: color),
+                Icon(Icons.phone_rounded, color: widget.color),
               ],
             ),
           ),

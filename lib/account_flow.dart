@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'address_search_service.dart';
 import 'backend_client.dart';
+import 'emergency.dart';
 
 const _deepBlue = Color(0xFF061C35);
 const _orange = Color(0xFFFF6328);
@@ -146,12 +147,22 @@ class _AccountGateState extends State<AccountGate> {
     _restore();
   }
 
+  /// Verdadeiro quando a sessão do Supabase ainda vale e o perfil local existe.
+  /// Nesse caso a abertura leva direto ao aplicativo, sem pedir senha de novo.
+  bool sessionRestored = false;
+
   Future<void> _restore() async {
     try {
       profile = await vault.readProfile();
       pendingEmail = await vault.readPendingEmail();
     } catch (_) {
       profile = null;
+    }
+    // Um cadastro ainda não confirmado grava o perfil localmente antes de
+    // existir sessão. Só restauramos quando há sessão de verdade e nenhuma
+    // confirmação pendente — clicar não pode substituir autenticação.
+    if (profile != null && pendingEmail == null) {
+      sessionRestored = await backend.hasRestorableSession();
     }
     if (mounted) setState(() => state = _GateState.launch);
   }
@@ -168,21 +179,29 @@ class _AccountGateState extends State<AccountGate> {
     );
     await vault.save(resident);
     await vault.savePendingEmail(resident.email);
-    if (mounted)
+    if (mounted) {
       setState(() {
         profile = resident;
         pendingEmail = resident.email;
         state = _GateState.account;
       });
+    }
   }
 
   Future<void> _remove() async {
+    // Remover o perfil precisa encerrar a sessão também: caso contrário o
+    // token continuaria no cofre e o próximo acesso restauraria a conta que a
+    // pessoa acabou de pedir para apagar deste aparelho.
+    await backend.signOut();
     await vault.clear();
-    if (mounted)
+    if (mounted) {
       setState(() {
         profile = null;
+        pendingEmail = null;
+        sessionRestored = false;
         state = _GateState.account;
       });
+    }
   }
 
   @override
@@ -197,7 +216,8 @@ class _AccountGateState extends State<AccountGate> {
             child: Center(child: CircularProgressIndicator(color: _orange))),
         _GateState.launch => SignatureLaunch(
             key: const ValueKey('launch'),
-            onComplete: () => setState(() => state = _GateState.account)),
+            onComplete: () => setState(() => state =
+                sessionRestored ? _GateState.unlocked : _GateState.account)),
         _GateState.account => AccountAccessScreen(
             key: const ValueKey('account'),
             profile: profile,
@@ -218,8 +238,21 @@ class _AccountGateState extends State<AccountGate> {
               }
             },
             onReset: _remove),
-        _GateState.unlocked => widget.builder(profile!,
-            () => setState(() => state = _GateState.account), _remove),
+        // `profile` só é nulo aqui se a restauração tiver corrido mal; nesse
+        // caso voltamos ao acesso em vez de derrubar o aplicativo.
+        _GateState.unlocked => profile == null
+            ? AccountRecoveryScreen(
+                key: const ValueKey('recovery'),
+                onRestart: _remove,
+              )
+            : widget.builder(
+                profile!,
+                () => setState(() {
+                  sessionRestored = false;
+                  state = _GateState.account;
+                }),
+                _remove,
+              ),
       },
     );
     return LayoutBuilder(
@@ -837,9 +870,10 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
 
   Widget _buildLogin() =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(widget.profile == null
-            ? 'Entre no BluAlert'
-            : 'Olá, ${widget.profile!.firstName}.',
+        Text(
+            widget.profile == null
+                ? 'Entre no BluAlert'
+                : 'Olá, ${widget.profile!.firstName}.',
             style: const TextStyle(
                 color: _ink,
                 fontSize: 28,
@@ -1022,6 +1056,64 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                             }),
                     child: const Text('Já tenho cadastro'))),
           ]));
+}
+
+/// Saída segura para o caso em que a conta existe mas o perfil não pôde ser
+/// carregado — por exemplo, um usuário criado em `auth.users` sem linha
+/// correspondente em `profiles`.
+///
+/// A regra é não travar e não adivinhar: explicamos o que aconteceu, mantemos o
+/// caminho de emergência à vista e oferecemos uma ação concreta.
+class AccountRecoveryScreen extends StatelessWidget {
+  const AccountRecoveryScreen({required this.onRestart, super.key});
+
+  final Future<void> Function() onRestart;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: _paper,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(26),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(Icons.person_off_outlined,
+                      size: 46, color: _orange),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Não foi possível carregar seu perfil',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: _ink,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -.6),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Sua conta existe, mas os dados do perfil não chegaram a '
+                    'este aparelho. Entre novamente para recarregá-los. Se o '
+                    'problema continuar, o cadastro precisa ser refeito.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: _muted, height: 1.5),
+                  ),
+                  const SizedBox(height: 22),
+                  const PilotNotice(),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: onRestart,
+                    style: FilledButton.styleFrom(backgroundColor: _orange),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Entrar novamente'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class AddressSuggestionList extends StatelessWidget {

@@ -17,9 +17,17 @@ export async function authenticatedUser(request: Request) {
   return { client, user: data.user };
 }
 
-export function json(body: unknown, status = 200) {
+export function json(
+  body: unknown,
+  status = 200,
+  extraHeaders: Record<string, string> = {},
+) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...extraHeaders,
+    },
   });
 }
