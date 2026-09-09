@@ -58,6 +58,7 @@ class ProfileVault {
   static const _storage = FlutterSecureStorage();
   static const _profileKey = 'resident_profile_v2';
   static const _legacyProfileKey = 'resident_profile_v1';
+  static const _pendingEmailKey = 'pending_confirmation_email_v1';
 
   Future<ResidentProfile?> readProfile() async {
     final encoded = kIsWeb
@@ -84,14 +85,41 @@ class ProfileVault {
     }
   }
 
+  Future<String?> readPendingEmail() async {
+    if (kIsWeb) {
+      return (await SharedPreferences.getInstance())
+          .getString(_pendingEmailKey);
+    }
+    return await _storage.read(key: _pendingEmailKey);
+  }
+
+  Future<void> savePendingEmail(String email) async {
+    if (kIsWeb) {
+      await (await SharedPreferences.getInstance())
+          .setString(_pendingEmailKey, email);
+    } else {
+      await _storage.write(key: _pendingEmailKey, value: email);
+    }
+  }
+
+  Future<void> clearPendingEmail() async {
+    if (kIsWeb) {
+      await (await SharedPreferences.getInstance()).remove(_pendingEmailKey);
+    } else {
+      await _storage.delete(key: _pendingEmailKey);
+    }
+  }
+
   Future<void> clear() async {
     if (kIsWeb) {
       final p = await SharedPreferences.getInstance();
       await p.remove(_profileKey);
       await p.remove(_legacyProfileKey);
+      await p.remove(_pendingEmailKey);
     } else {
       await _storage.delete(key: _profileKey);
       await _storage.delete(key: _legacyProfileKey);
+      await _storage.delete(key: _pendingEmailKey);
     }
   }
 }
@@ -111,6 +139,7 @@ class _AccountGateState extends State<AccountGate> {
   final backend = BackendClient();
   _GateState state = _GateState.loading;
   ResidentProfile? profile;
+  String? pendingEmail;
   @override
   void initState() {
     super.initState();
@@ -120,6 +149,7 @@ class _AccountGateState extends State<AccountGate> {
   Future<void> _restore() async {
     try {
       profile = await vault.readProfile();
+      pendingEmail = await vault.readPendingEmail();
     } catch (_) {
       profile = null;
     }
@@ -137,9 +167,11 @@ class _AccountGateState extends State<AccountGate> {
       longitude: resident.longitude,
     );
     await vault.save(resident);
+    await vault.savePendingEmail(resident.email);
     if (mounted)
       setState(() {
         profile = resident;
+        pendingEmail = resident.email;
         state = _GateState.account;
       });
   }
@@ -169,9 +201,22 @@ class _AccountGateState extends State<AccountGate> {
         _GateState.account => AccountAccessScreen(
             key: const ValueKey('account'),
             profile: profile,
+            pendingConfirmationEmail: pendingEmail,
             vault: vault,
             onRegistered: _register,
-            onUnlocked: () => setState(() => state = _GateState.unlocked),
+            onUnlocked: (restoredProfile) async {
+              if (restoredProfile != null) {
+                await vault.save(restoredProfile);
+              }
+              await vault.clearPendingEmail();
+              if (mounted) {
+                setState(() {
+                  profile = restoredProfile ?? profile;
+                  pendingEmail = null;
+                  state = _GateState.unlocked;
+                });
+              }
+            },
             onReset: _remove),
         _GateState.unlocked => widget.builder(profile!,
             () => setState(() => state = _GateState.account), _remove),
@@ -427,15 +472,17 @@ class LaunchRiverPainter extends CustomPainter {
 class AccountAccessScreen extends StatefulWidget {
   const AccountAccessScreen(
       {required this.profile,
+      this.pendingConfirmationEmail,
       required this.vault,
       required this.onRegistered,
       required this.onUnlocked,
       required this.onReset,
       super.key});
   final ResidentProfile? profile;
+  final String? pendingConfirmationEmail;
   final ProfileVault vault;
   final Future<void> Function(ResidentProfile, String) onRegistered;
-  final VoidCallback onUnlocked;
+  final Future<void> Function(ResidentProfile?) onUnlocked;
   final Future<void> Function() onReset;
   @override
   State<AccountAccessScreen> createState() => _AccountAccessScreenState();
@@ -454,18 +501,27 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
   final addressSearch = AddressSearchService();
   late final AnimationController shakeController;
   Timer? addressDebounce;
+  Timer? resendTimer;
   AddressSuggestion? selectedAddress;
   List<AddressSuggestion> addressSuggestions = const [];
   bool searchingAddress = false, saving = false, loginMode = false;
   bool awaitingConfirmation = false;
+  int resendSeconds = 0;
+  String pendingPassword = '';
   String? message;
   @override
   void initState() {
     super.initState();
-    loginMode = widget.profile != null;
-    email.text = widget.profile?.email ?? '';
+    awaitingConfirmation = widget.pendingConfirmationEmail != null;
+    loginMode = !awaitingConfirmation;
+    email.text = widget.pendingConfirmationEmail ?? widget.profile?.email ?? '';
     shakeController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 380));
+    if (awaitingConfirmation) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startResendCountdown();
+      });
+    }
   }
 
   @override
@@ -477,6 +533,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
     street.dispose();
     number.dispose();
     addressDebounce?.cancel();
+    resendTimer?.cancel();
     shakeController.dispose();
     super.dispose();
   }
@@ -546,11 +603,25 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
       return;
     }
     if (!mounted) return;
-    password.clear();
+    pendingPassword = password.text;
     setState(() {
       saving = false;
       awaitingConfirmation = true;
       message = null;
+    });
+    _startResendCountdown();
+  }
+
+  void _startResendCountdown() {
+    resendTimer?.cancel();
+    setState(() => resendSeconds = 60);
+    resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || resendSeconds <= 1) {
+        timer.cancel();
+        if (mounted) setState(() => resendSeconds = 0);
+        return;
+      }
+      setState(() => resendSeconds--);
     });
   }
 
@@ -563,6 +634,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
       await backend.resendConfirmation(email.text);
       if (mounted) {
         setState(() => message = 'Novo e-mail de confirmação enviado.');
+        _startResendCountdown();
       }
     } catch (error) {
       if (mounted) {
@@ -571,6 +643,33 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
       }
     } finally {
       if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> confirmAndEnter() async {
+    if (pendingPassword.isEmpty) {
+      setState(() {
+        awaitingConfirmation = false;
+        loginMode = true;
+        message = 'Digite sua senha para concluir a entrada.';
+      });
+      return;
+    }
+    setState(() {
+      saving = true;
+      message = null;
+    });
+    try {
+      await backend.signIn(email: email.text, password: pendingPassword);
+      pendingPassword = '';
+      if (mounted) await widget.onUnlocked(null);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          saving = false;
+          message = error.toString().replaceFirst('BackendUnavailable: ', '');
+        });
+      }
     }
   }
 
@@ -586,7 +685,16 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
     });
     try {
       await backend.signIn(email: email.text, password: password.text);
-      if (mounted) widget.onUnlocked();
+      final remote = await backend.fetchMyProfile();
+      final restoredProfile = ResidentProfile(
+        email: email.text.trim().toLowerCase(),
+        fullName: remote['full_name'] as String,
+        phone: remote['phone'] as String,
+        referenceAddress: remote['reference_address'] as String? ?? '',
+        latitude: (remote['reference_latitude'] as num?)?.toDouble(),
+        longitude: (remote['reference_longitude'] as num?)?.toDouble(),
+      );
+      if (mounted) await widget.onUnlocked(restoredProfile);
       return;
     } catch (error) {
       if (mounted) {
@@ -646,6 +754,16 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
               sliver: SliverToBoxAdapter(
                   child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 360),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                              position: Tween<Offset>(
+                                      begin: const Offset(.06, 0),
+                                      end: Offset.zero)
+                                  .animate(animation),
+                              child: child)),
                       child: loginMode
                           ? AnimatedBuilder(
                               key: const ValueKey('login'),
@@ -697,22 +815,31 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
           SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                  onPressed: () => setState(() => loginMode = true),
+                  onPressed: saving ? null : confirmAndEnter,
                   style: FilledButton.styleFrom(backgroundColor: _orange),
-                  icon: const Icon(Icons.login_rounded),
-                  label: const Text('Já confirmei, quero entrar'))),
+                  icon: saving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.verified_user_outlined),
+                  label: const Text('Já confirmei meu e-mail'))),
           const SizedBox(height: 8),
           Center(
               child: TextButton(
-                  onPressed: saving ? null : resendConfirmation,
-                  child:
-                      Text(saving ? 'Enviando...' : 'Reenviar confirmação'))),
+                  onPressed:
+                      saving || resendSeconds > 0 ? null : resendConfirmation,
+                  child: Text(resendSeconds > 0
+                      ? 'Reenviar em ${resendSeconds}s'
+                      : 'Reenviar confirmação'))),
         ],
       );
 
   Widget _buildLogin() =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Olá, ${widget.profile?.firstName ?? 'morador'}.',
+        Text(widget.profile == null
+            ? 'Entre no BluAlert'
+            : 'Olá, ${widget.profile!.firstName}.',
             style: const TextStyle(
                 color: _ink,
                 fontSize: 28,
@@ -757,9 +884,14 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
         const SizedBox(height: 8),
         Center(
             child: TextButton(
-                onPressed: widget.onReset,
-                child: const Text(
-                    'Não consigo entrar ou quero refazer o cadastro'))),
+                onPressed: saving
+                    ? null
+                    : () => setState(() {
+                          loginMode = false;
+                          message = null;
+                          password.clear();
+                        }),
+                child: const Text('Ainda não tenho cadastro'))),
       ]);
 
   Widget _buildRegistration() => Form(
@@ -878,6 +1010,17 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                 'Seus dados ficam protegidos e são usados somente no atendimento das ocorrências que você enviar.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: _muted, fontSize: 11, height: 1.4)),
+            const SizedBox(height: 8),
+            Center(
+                child: TextButton(
+                    onPressed: saving
+                        ? null
+                        : () => setState(() {
+                              loginMode = true;
+                              message = null;
+                              password.clear();
+                            }),
+                    child: const Text('Já tenho cadastro'))),
           ]));
 }
 

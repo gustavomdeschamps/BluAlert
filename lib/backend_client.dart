@@ -126,6 +126,28 @@ class BackendClient {
     await _saveAuthResponse(decoded);
   }
 
+  Future<Map<String, dynamic>> fetchMyProfile() async {
+    final active = await session();
+    final response = await _http.get(
+      Uri.parse(
+          '$supabaseUrl/rest/v1/profiles?select=full_name,phone,reference_address,reference_latitude,reference_longitude&limit=1'),
+      headers: {
+        'apikey': anonKey,
+        'Authorization': 'Bearer ${active.accessToken}',
+      },
+    ).timeout(const Duration(seconds: 20));
+    final decoded = jsonDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendUnavailable(_authError(
+          decoded is Map<String, dynamic> ? decoded : <String, dynamic>{}));
+    }
+    if (decoded is! List || decoded.isEmpty) {
+      throw const BackendUnavailable(
+          'Seu acesso foi confirmado, mas o perfil não foi encontrado.');
+    }
+    return Map<String, dynamic>.from(decoded.first as Map);
+  }
+
   Future<void> resendConfirmation(String email) async {
     _requireConfiguration();
     final response = await _http

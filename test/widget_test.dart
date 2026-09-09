@@ -49,12 +49,15 @@ void main() {
           profile: null,
           vault: const ProfileVault(),
           onRegistered: (_, __) async {},
-          onUnlocked: () {},
+          onUnlocked: (_) async {},
           onReset: () async {},
         ),
       ),
     );
 
+    expect(find.text('Entrar no BluAlert'), findsWidgets);
+    await tester.tap(find.text('Ainda não tenho cadastro'));
+    await tester.pumpAndSettle();
     expect(find.text('Nome completo'), findsOneWidget);
     expect(find.text('E-mail de acesso'), findsOneWidget);
     expect(find.text('Senha da conta'), findsOneWidget);
@@ -64,6 +67,27 @@ void main() {
     expect(find.text('Usar minha localização atual'), findsNothing);
     expect(find.textContaining('PIN'), findsNothing);
     expect(find.text('Nome do contato'), findsNothing);
+  });
+
+  testWidgets('cadastro pendente abre a tela de confirmação', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessScreen(
+          profile: null,
+          pendingConfirmationEmail: 'morador@exemplo.com',
+          vault: const ProfileVault(),
+          onRegistered: (_, __) async {},
+          onUnlocked: (_) async {},
+          onReset: () async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Confirme seu e-mail'), findsOneWidget);
+    expect(find.text('morador@exemplo.com'), findsOneWidget);
+    expect(find.text('Já confirmei meu e-mail'), findsOneWidget);
+    expect(find.textContaining('Reenviar em'), findsOneWidget);
   });
 
   testWidgets('ocorrência exige evidência, descrição e localização',
