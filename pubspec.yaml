@@ -35,14 +35,14 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  image_path: assets/brand/blualert_mark.png
+  image_path: assets/brand/blualert_mark_v2.png
   adaptive_icon_background: "#0B2748"
-  adaptive_icon_foreground: assets/brand/blualert_mark.png
+  adaptive_icon_foreground: assets/brand/blualert_mark_v2.png
   adaptive_icon_foreground_inset: 18
   min_sdk_android: 24
   web:
     generate: true
-    image_path: assets/brand/blualert_mark.png
+    image_path: assets/brand/blualert_mark_v2.png
     background_color: "#0B2748"
     theme_color: "#0B2748"
 
@@ -50,4 +50,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/brand/blualert_mark.png
+    - assets/brand/blualert_mark_v2.png
     - assets/brand/defesa_civil_blumenau.png

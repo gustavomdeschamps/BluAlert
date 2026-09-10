@@ -32,6 +32,15 @@ class PilotConfig {
     required this.uploadsEnabled,
     required this.videoEnabled,
     required this.origin,
+    this.weatherCacheSeconds = 1800,
+    this.hydrologyCacheSeconds = 1800,
+    this.neighborhoodForecastEnabled = true,
+    this.landslideLayerEnabled = false,
+    this.floodLayerEnabled = false,
+    this.dataNotice,
+    this.maintenanceNotice,
+    this.mapTileUrl,
+    this.mapTileAttribution,
   });
 
   /// Estado assumido antes de qualquer resposta do servidor e sempre que a
@@ -52,6 +61,33 @@ class PilotConfig {
   final bool videoEnabled;
   final PilotConfigOrigin origin;
 
+  /// Validade do cache, por família de dado. Permite afrouxar as consultas se
+  /// a cota gratuita apertar, sem republicar o aplicativo.
+  final int weatherCacheSeconds;
+  final int hydrologyCacheSeconds;
+
+  /// Desliga a previsão por bairro sem nova versão do app.
+  final bool neighborhoodForecastEnabled;
+
+  /// Camadas de risco. Permanecem desligadas enquanto não houver fonte oficial
+  /// licenciada e vigente — ligar sem isso desenharia risco não validado sobre
+  /// a casa de alguém.
+  final bool landslideLayerEnabled;
+  final bool floodLayerEnabled;
+
+  /// Aviso sobre os dados, exibido no topo da situação quando preenchido.
+  final String? dataNotice;
+
+  /// Manutenção programada, para avisar antes de a fonte cair.
+  final String? maintenanceNotice;
+
+  /// Provedor de tiles alternativo. Vazio mantém o OpenStreetMap padrão.
+  final String? mapTileUrl;
+  final String? mapTileAttribution;
+
+  Duration get weatherCache => Duration(seconds: weatherCacheSeconds);
+  Duration get hydrologyCache => Duration(seconds: hydrologyCacheSeconds);
+
   /// O aviso de piloto some apenas quando o servidor confirmar as duas coisas:
   /// que o piloto acabou e que existe uma central humana integrada.
   bool get showsPilotNotice => pilotMode || !humanReceiverConfirmed;
@@ -67,7 +103,37 @@ class PilotConfig {
         uploadsEnabled: json['uploads_enabled'] as bool? ?? true,
         videoEnabled: json['video_enabled'] as bool? ?? true,
         origin: PilotConfigOrigin.server,
+        // Cada campo cai no padrão local seguro se vier ausente ou fora de
+        // faixa: uma configuração remota corrompida não pode desconfigurar o
+        // aplicativo inteiro.
+        weatherCacheSeconds:
+            _boundedSeconds(json['weather_cache_seconds'], 1800),
+        hydrologyCacheSeconds:
+            _boundedSeconds(json['hydrology_cache_seconds'], 1800),
+        neighborhoodForecastEnabled:
+            json['neighborhood_forecast_enabled'] as bool? ?? true,
+        landslideLayerEnabled:
+            json['landslide_layer_enabled'] as bool? ?? false,
+        floodLayerEnabled: json['flood_layer_enabled'] as bool? ?? false,
+        dataNotice: _text(json['data_notice']),
+        maintenanceNotice: _text(json['maintenance_notice']),
+        mapTileUrl: _text(json['map_tile_url']),
+        mapTileAttribution: _text(json['map_tile_attribution']),
       );
+
+  /// Texto opcional: string vazia vira ausência, para a interface não mostrar
+  /// um aviso em branco.
+  static String? _text(Object? raw) {
+    final value = raw is String ? raw.trim() : '';
+    return value.isEmpty ? null : value;
+  }
+
+  /// Mantém o cache entre 5 minutos e 6 horas, como o banco também exige.
+  static int _boundedSeconds(Object? raw, int fallback) {
+    final value = raw is num ? raw.toInt() : null;
+    if (value == null || value < 300 || value > 21600) return fallback;
+    return value;
+  }
 }
 
 enum PilotConfigOrigin {

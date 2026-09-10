@@ -6,6 +6,7 @@ import 'data/neighborhoods.dart';
 import 'data/official_alerts.dart';
 import 'data/situation_repository.dart';
 import 'data/weather.dart';
+import 'river_chart.dart';
 
 const _navy = Color(0xFF173B67);
 const _navyDark = Color(0xFF0B2748);
@@ -108,6 +109,8 @@ class SituationPanel extends StatelessWidget {
             const SizedBox(height: 14),
             HourlyForecastSection(result: situation.weather),
             const SizedBox(height: 14),
+            DailyForecastSection(result: situation.weather),
+            const SizedBox(height: 14),
             NeighborhoodForecastSection(
               result: situation.neighborhoods,
               highlighted: home,
@@ -163,7 +166,7 @@ class _RefreshBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Última tentativa às ${formatTime(lastAttemptAt)}',
+                  'Consultado às ${formatTime(lastAttemptAt)} · atualização automática a cada 5 min',
                   style: const TextStyle(color: _muted, fontSize: 11),
                 ),
                 if (isPartial)
@@ -317,7 +320,7 @@ class StaleBadge extends StatelessWidget {
       );
 }
 
-/// Seção 1 — avisos oficiais.
+/// Seção 1 — situação oficial publicada pelo município.
 class OfficialAlertsSection extends StatelessWidget {
   const OfficialAlertsSection({
     required this.result,
@@ -333,16 +336,17 @@ class OfficialAlertsSection extends StatelessWidget {
     if (!result.hasData) {
       return _SectionCard(
         icon: Icons.campaign_outlined,
-        title: 'Avisos oficiais',
+        title: 'Situação oficial',
         child: UnavailableNotice(result: result),
       );
     }
     final alerts = result.data!;
     final elevated = alerts.elevated;
-    final accent = elevated.isEmpty ? _success : _danger;
+    final accent =
+        elevated.isEmpty ? _success : _stageColor(elevated.first.stage);
     return _SectionCard(
       icon: Icons.campaign_outlined,
-      title: 'Avisos oficiais',
+      title: 'Situação oficial',
       accent: accent,
       trailing: TextButton(
         onPressed: () => onOpenSource(alerts.origin.officialUrl),
@@ -351,7 +355,20 @@ class OfficialAlertsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (elevated.isEmpty)
+          if (alerts.riverStage != null) ...[
+            _OfficialStatusRow(
+              label: 'Rio Itajaí-Açu',
+              stage: alerts.riverStage!,
+              icon: Icons.water_rounded,
+            ),
+            const Divider(height: 22),
+          ],
+          if (alerts.weatherByRegion.isEmpty)
+            const Text(
+              'A publicação não trouxe a situação por região.',
+              style: TextStyle(color: _muted, fontSize: 12.5),
+            )
+          else if (alerts.allNormal)
             const Row(
               children: [
                 Icon(Icons.check_circle_outline, size: 18, color: _success),
@@ -364,34 +381,97 @@ class OfficialAlertsSection extends StatelessWidget {
                 ),
               ],
             )
-          else
-            ...elevated.map((item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          size: 18, color: _danger),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Região ${item.region}: ${item.stage}',
-                          style: const TextStyle(
-                              color: _ink,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
+          else ...[
+            const Text(
+              'Condição meteorológica por região',
+              style: TextStyle(
+                color: _muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 9),
+            ...alerts.weatherByRegion.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _OfficialStatusRow(
+                  label: 'Região ${item.region}',
+                  stage: item.stage,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Text(
             'Publicado pela Defesa Civil de Blumenau em '
-            '${formatDate(alerts.publishedAt)}.',
+            '${formatDate(alerts.publishedAt)} · consultado às '
+            '${formatTime(alerts.fetchedAt)}.',
             style: const TextStyle(color: _muted, fontSize: 11, height: 1.4),
           ),
         ],
       ),
+    );
+  }
+
+  static Color _stageColor(String stage) {
+    final normalized = stage.toLowerCase();
+    if (normalized.contains('alerta')) return _danger;
+    if (normalized.contains('atenção') || normalized.contains('atencao')) {
+      return _warning;
+    }
+    if (normalized.contains('observação') ||
+        normalized.contains('observacao')) {
+      return _water;
+    }
+    return _success;
+  }
+}
+
+class _OfficialStatusRow extends StatelessWidget {
+  const _OfficialStatusRow({
+    required this.label,
+    required this.stage,
+    this.icon = Icons.location_on_outlined,
+  });
+
+  final String label;
+  final String stage;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = OfficialAlertsSection._stageColor(stage);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _ink,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            stage.toUpperCase(),
+            style: TextStyle(
+              color: color,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              letterSpacing: .45,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -493,6 +573,10 @@ class RiverSection extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _TrendRow(trend: river.trend),
+          if (river.series.length >= RiverChart.minimumPoints) ...[
+            const SizedBox(height: 14),
+            RiverChart(readings: river.series),
+          ],
           const SizedBox(height: 12),
           _StageScale(current: stage),
           if (river.stageIsOfficial) ...[
@@ -837,7 +921,121 @@ class HourlyForecastSection extends StatelessWidget {
   }
 }
 
-/// Seção 5 — previsão por bairro, agrupada por célula de grade.
+/// Seção 5 — previsão dos próximos dias para o município.
+///
+/// Separada da previsão por bairro de propósito: aqui é um único ponto de
+/// referência municipal, e a comparação entre dias é o que ajuda a decidir.
+class DailyForecastSection extends StatelessWidget {
+  const DailyForecastSection({required this.result, super.key});
+
+  final ProviderResult<WeatherSituation> result;
+
+  static const _weekdays = [
+    'segunda',
+    'terça',
+    'quarta',
+    'quinta',
+    'sexta',
+    'sábado',
+    'domingo',
+  ];
+
+  String _dayLabel(DateTime date, DateTime today) {
+    final difference = DateTime(date.year, date.month, date.day)
+        .difference(DateTime(today.year, today.month, today.day))
+        .inDays;
+    if (difference == 0) return 'Hoje';
+    if (difference == 1) return 'Amanhã';
+    return _weekdays[date.weekday - 1];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final days = result.data?.days ?? const <DailyForecast>[];
+    if (!result.hasData || days.isEmpty) {
+      return _SectionCard(
+        icon: Icons.calendar_today_outlined,
+        title: 'Próximos dias',
+        child: result.hasData
+            ? const Text('Sem previsão diária disponível agora.',
+                style: TextStyle(color: _muted, fontSize: 12))
+            : UnavailableNotice(result: result),
+      );
+    }
+    final today = DateTime.now();
+    return _SectionCard(
+      icon: Icons.calendar_today_outlined,
+      title: 'Próximos dias',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...days.map((day) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 66,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _dayLabel(day.date, today),
+                            style: const TextStyle(
+                                color: _ink,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800),
+                          ),
+                          Text(formatDate(day.date),
+                              style: const TextStyle(
+                                  color: _muted, fontSize: 10.5)),
+                        ],
+                      ),
+                    ),
+                    Icon(weatherIcon(day.condition), size: 21, color: _water),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        day.condition.label,
+                        style: const TextStyle(color: _muted, fontSize: 11.5),
+                      ),
+                    ),
+                    if (day.precipitationProbability != null) ...[
+                      Text(
+                        '${day.precipitationProbability}%',
+                        style: const TextStyle(
+                            color: _water,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    // Temperatura real prevista, nunca "frio" ou "agradável"
+                    // como se fossem medidas.
+                    Text(
+                      '${day.maxTemperature.round()}° / '
+                      '${day.minTemperature.round()}°',
+                      style: const TextStyle(
+                          color: _ink,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w900),
+                    ),
+                  ],
+                ),
+              )),
+          const SizedBox(height: 2),
+          Text(
+            'Previsão de modelo para a '
+            '${result.data!.origin.referenceLabel.toLowerCase()}. '
+            'Máxima e mínima do dia, em graus Celsius.',
+            style: const TextStyle(color: _muted, fontSize: 10.5, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Seção 6 — previsão por bairro, agrupada por célula de grade.
 class NeighborhoodForecastSection extends StatefulWidget {
   const NeighborhoodForecastSection({
     required this.result,
@@ -1041,7 +1239,7 @@ class _AreaTile extends StatelessWidget {
   }
 }
 
-/// Seção 6 — fontes e horários.
+/// Seção 7 — fontes e horários.
 class SourcesSection extends StatelessWidget {
   const SourcesSection({
     required this.situation,

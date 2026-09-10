@@ -25,5 +25,8 @@ verify_jwt = true
 [functions.remote-config]
 verify_jwt = false
 
+[functions.situation]
+verify_jwt = false
+
 [functions.escalate-queue]
 verify_jwt = false

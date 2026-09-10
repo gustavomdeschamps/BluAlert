@@ -285,6 +285,72 @@ tela junto do resultado.
 
 ---
 
+## Localização da ocorrência
+
+O ponto do GPS **passa obrigatoriamente por confirmação no mapa** antes do envio
+(`lib/location_picker.dart`). O motivo é operacional: sob mata, em vale ou dentro
+de casa o desvio do GPS passa de 50 m com frequência em Blumenau, e um ponto
+errado manda a equipe para a rua errada. Quem está no local é a única pessoa
+capaz de corrigir.
+
+Consequência registrada no dado, não escondida:
+
+| Origem | `accuracyM` | Círculo de precisão no mapa |
+|---|---|---|
+| `gps` | precisão informada pelo aparelho | desenhado |
+| `manuallyAdjusted` | **nulo** | **não desenhado** |
+
+Mostrar o raio do GPS sobre um ponto escolhido à mão seria fingir uma precisão
+que não existe, e a equipe usaria esse raio para planejar a busca. A origem
+viaja para a central no campo `locationSource`.
+
+O mapa é preso ao município; um ponto fora de Blumenau bloqueia a confirmação e
+aponta o 199, porque a Defesa Civil municipal não atende fora do território.
+
+Esquema local: a coluna `location_source` entrou no esquema 2 do banco da fila,
+com migração incremental (`addColumn`) que preserva ocorrências já pendentes no
+aparelho.
+
+## Gráfico do nível do rio
+
+Desenha **apenas medições reais** da estação telemétrica — nunca interpola ponto
+inexistente nem preenche buraco de série. Exige no mínimo 3 leituras; abaixo
+disso mostra "série insuficiente" em vez de uma linha inventada.
+
+A escala vertical inclui a **próxima cota oficial acima do observado**, para que
+a distância até ela seja visível. Um gráfico ajustado só aos dados faria uma
+variação de 10 cm parecer uma cheia. As cotas aparecem tracejadas, com nome, e a
+legenda traz unidade, número de leituras e o intervalo de horários.
+
+## Configuração remota
+
+Lida de `remote_config` pela função `remote-config` e aplicada sem republicar o
+aplicativo:
+
+| Campo | Efeito | Padrão local seguro |
+|---|---|---|
+| `weather_cache_seconds` | validade do cache do tempo | 1800 s |
+| `hydrology_cache_seconds` | validade do cache do rio | 1800 s |
+| `neighborhood_forecast_enabled` | liga/desliga previsão por bairro | ligado |
+| `landslide_layer_enabled` | camada de deslizamento | **desligado** |
+| `flood_layer_enabled` | camada de inundação | **desligado** |
+| `maintenance_notice` / `data_notice` | avisos na tela | ausente |
+| `map_tile_url` / `map_tile_attribution` | troca de provedor cartográfico | OpenStreetMap |
+
+Todo campo cai no padrão local quando vier ausente, vazio ou fora de faixa: uma
+configuração remota corrompida não pode desconfigurar o aplicativo. Cache fora
+de 5 min–6 h é rejeitado, e trocar de provedor de tiles **soma** a atribuição do
+OpenStreetMap em vez de substituí-la.
+
+## Painel operacional
+
+As ocorrências entram no mapa como **clusters** nativos do MapLibre (fonte
+GeoJSON com `cluster: true`), sem biblioteca adicional. Numa enchente chegam
+dezenas de registros no mesmo quarteirão e alfinetes soltos viram mancha
+ilegível. O cluster guarda a **maior prioridade do grupo** (`clusterProperties`)
+e usa essa cor: um grupo que contém uma P5 não pode parecer rotina. Clicar
+aproxima até o cluster se abrir.
+
 ## Como atualizar a lista de bairros
 
 A lista é gerada da fonte oficial e versionada para funcionar offline. Para

@@ -18,6 +18,11 @@ class OutboxOccurrences extends Table {
   RealColumn get longitude => real()();
   RealColumn get accuracyM => real().nullable()();
   DateTimeColumn get locationCapturedAt => dateTime()();
+
+  /// Origem da coordenada. Ver `LocationSource` em `queue_models.dart`.
+  /// Padrão `gps` (índice 0) para as ocorrências gravadas antes do esquema 2.
+  IntColumn get locationSource =>
+      intEnum<LocationSource>().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime()();
   IntColumn get status => intEnum<QueueStatus>()();
   IntColumn get attempts => integer().withDefault(const Constant(0))();
@@ -51,10 +56,22 @@ class QueueDatabase extends _$QueueDatabase {
   QueueDatabase(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (migrator, from, to) async {
+          // Esquema 2 acrescenta a origem da coordenada. A migração é
+          // incremental e preserva ocorrências que já estavam na fila do
+          // aparelho — perder um registro pendente aqui significaria perder o
+          // pedido de ajuda de alguém.
+          if (from < 2) {
+            await migrator.addColumn(
+              outboxOccurrences,
+              outboxOccurrences.locationSource,
+            );
+          }
+        },
         beforeOpen: (details) async {
           // Sem isto o SQLite ignora as chaves estrangeiras e uma evidência
           // poderia sobreviver à ocorrência que a originou.

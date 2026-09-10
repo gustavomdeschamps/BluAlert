@@ -101,11 +101,15 @@ function Operations() {
   </main>;
 }
 
-function Map({items,selected,onSelect}:{items:QueueItem[];selected:string|null;onSelect:(id:string)=>void}) {
-  const host = useRef<HTMLDivElement>(null); const map = useRef<maplibregl.Map | null>(null); const markers = useRef<maplibregl.Marker[]>([]);
+function Map({ items, selected, onSelect }: { items: QueueItem[]; selected: string | null; onSelect: (id: string) => void }) {
+  const host = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const [styleReady, setStyleReady] = useState(false);
+  const [boundaryReady, setBoundaryReady] = useState(false);
+
   useEffect(() => {
-    if (!host.current || map.current) return;
-    map.current = new maplibregl.Map({
+    if (!host.current || mapRef.current) return;
+    const map = new maplibregl.Map({
       container: host.current,
       center: [BLUMENAU.lon, BLUMENAU.lat],
       zoom: 12,
@@ -116,28 +120,150 @@ function Map({items,selected,onSelect}:{items:QueueItem[];selected:string|null;o
       maxZoom: 19,
       style: OSM_STYLE,
     });
-    map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
-    map.current.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
-    // Limite municipal oficial do IBGE. Enquanto não carregar, nada é
-    // desenhado — jamais um polígono aproximado.
-    map.current.on('load', async () => {
+    mapRef.current = map;
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+
+    map.on('load', async () => {
+      setStyleReady(true);
+      // Limite municipal oficial do IBGE. Enquanto não carregar, nada é
+      // desenhado — jamais um polígono aproximado.
       try {
-        const response = await fetch(IBGE_BOUNDARY_URL);
+        const response = await fetch(IBGE_BOUNDARY_URL, { signal: AbortSignal.timeout(15000) });
         if (!response.ok) return;
         const geojson = await response.json();
-        map.current?.addSource('limite-municipal', { type: 'geojson', data: geojson });
-        map.current?.addLayer({
-          id: 'limite-municipal-linha', type: 'line', source: 'limite-municipal',
+        if (!mapRef.current) return;
+        map.addSource('limite-municipal', { type: 'geojson', data: geojson });
+        map.addLayer({
+          id: 'limite-municipal-linha',
+          type: 'line',
+          source: 'limite-municipal',
           paint: { 'line-color': '#f15d2a', 'line-width': 2, 'line-opacity': 0.85 },
         });
+        setBoundaryReady(true);
       } catch {
         // Sem limite desenhado o mapa continua utilizável; não é bloqueante.
       }
     });
-    return () => map.current?.remove();
+
+    return () => {
+      mapRef.current = null;
+      map.remove();
+    };
   }, []);
-  useEffect(() => { markers.current.forEach(marker => marker.remove()); markers.current = items.map(item => { const el=document.createElement('button'); el.className=`map-marker p${item.effective_priority}${selected===item.id?' active':''}`; el.textContent=String(item.effective_priority); el.setAttribute('aria-label',`${categoryName[item.category]}, prioridade ${item.effective_priority}`); el.onclick=()=>onSelect(item.id); return new maplibregl.Marker({element:el}).setLngLat([item.longitude,item.latitude]).addTo(map.current!); }); }, [items,selected]);
-  return <div className="map-wrap"><div className="map-label"><strong>Mapa operacional</strong><span>Blumenau e região do piloto</span></div><div ref={host} className="map" /></div>;
+
+  // Ocorrências em cluster. O MapLibre agrupa nativamente a partir de uma fonte
+  // GeoJSON, sem biblioteca extra: numa enchente chegam dezenas de registros no
+  // mesmo quarteirão e alfinetes soltos viram uma mancha ilegível.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady) return;
+
+    const data: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: items.map((item) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [item.longitude, item.latitude] },
+        properties: {
+          id: item.id,
+          priority: item.effective_priority,
+          selected: item.id === selected ? 1 : 0,
+        },
+      })),
+    };
+
+    const existing = map.getSource('ocorrencias') as maplibregl.GeoJSONSource | undefined;
+    if (existing) {
+      existing.setData(data);
+      return;
+    }
+
+    map.addSource('ocorrencias', {
+      type: 'geojson',
+      data,
+      cluster: true,
+      clusterRadius: 45,
+      clusterMaxZoom: 16,
+      // Guarda a maior prioridade do grupo: um cluster que contém uma P5 não
+      // pode parecer rotina.
+      clusterProperties: { maxPriority: ['max', ['get', 'priority']] },
+    });
+
+    const byPriority = (field: string): maplibregl.ExpressionSpecification => [
+      'match', ['get', field],
+      5, '#c62035',
+      4, '#df4b1c',
+      3, '#c68a22',
+      '#60798d',
+    ];
+
+    map.addLayer({
+      id: 'clusters',
+      type: 'circle',
+      source: 'ocorrencias',
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': byPriority('maxPriority'),
+        'circle-radius': ['step', ['get', 'point_count'], 16, 5, 22, 15, 28],
+        'circle-stroke-width': 3,
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+    map.addLayer({
+      id: 'clusters-count',
+      type: 'symbol',
+      source: 'ocorrencias',
+      filter: ['has', 'point_count'],
+      layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 13 },
+      paint: { 'text-color': '#ffffff' },
+    });
+    map.addLayer({
+      id: 'ocorrencia',
+      type: 'circle',
+      source: 'ocorrencias',
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-color': byPriority('priority'),
+        'circle-radius': ['case', ['==', ['get', 'selected'], 1], 13, 9],
+        'circle-stroke-width': ['case', ['==', ['get', 'selected'], 1], 4, 3],
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+
+    map.on('click', 'ocorrencia', (event) => {
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id === 'string') onSelect(id);
+    });
+    // Clicar no cluster aproxima até ele se abrir.
+    map.on('click', 'clusters', async (event) => {
+      const feature = event.features?.[0];
+      const clusterId = feature?.properties?.cluster_id;
+      if (clusterId == null) return;
+      const source = map.getSource('ocorrencias') as maplibregl.GeoJSONSource;
+      const zoom = await source.getClusterExpansionZoom(clusterId as number);
+      map.easeTo({
+        center: (feature!.geometry as GeoJSON.Point).coordinates as [number, number],
+        zoom,
+      });
+    });
+    for (const layer of ['ocorrencia', 'clusters']) {
+      map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+    }
+  }, [items, selected, styleReady, onSelect]);
+
+  return (
+    <div className="map-wrap">
+      <div className="map-label">
+        <strong>Mapa operacional</strong>
+        <span>
+          {items.length === 0 ? 'Nenhuma ocorrência ativa' : `${items.length} ocorrência${items.length === 1 ? '' : 's'} em cluster`}
+          {boundaryReady ? ' · limite municipal IBGE' : ''}
+        </span>
+      </div>
+      <div ref={host} className="map" />
+    </div>
+  );
 }
 
 function Detail({item,onClose,onStatus}:{item:QueueItem;onClose:()=>void;onStatus:(s:Status)=>void}) {

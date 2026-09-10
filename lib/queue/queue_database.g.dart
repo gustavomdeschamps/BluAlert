@@ -56,6 +56,15 @@ class $OutboxOccurrencesTable extends OutboxOccurrences
   late final GeneratedColumn<DateTime> locationCapturedAt =
       GeneratedColumn<DateTime>('location_captured_at', aliasedName, false,
           type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumnWithTypeConverter<LocationSource, int>
+      locationSource = GeneratedColumn<int>(
+              'location_source', aliasedName, false,
+              type: DriftSqlType.int,
+              requiredDuringInsert: false,
+              defaultValue: const Constant(0))
+          .withConverter<LocationSource>(
+              $OutboxOccurrencesTable.$converterlocationSource);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -109,6 +118,7 @@ class $OutboxOccurrencesTable extends OutboxOccurrences
         longitude,
         accuracyM,
         locationCapturedAt,
+        locationSource,
         createdAt,
         status,
         attempts,
@@ -234,6 +244,9 @@ class $OutboxOccurrencesTable extends OutboxOccurrences
       locationCapturedAt: attachedDatabase.typeMapping.read(
           DriftSqlType.dateTime,
           data['${effectivePrefix}location_captured_at'])!,
+      locationSource: $OutboxOccurrencesTable.$converterlocationSource.fromSql(
+          attachedDatabase.typeMapping.read(
+              DriftSqlType.int, data['${effectivePrefix}location_source'])!),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       status: $OutboxOccurrencesTable.$converterstatus.fromSql(attachedDatabase
@@ -257,6 +270,8 @@ class $OutboxOccurrencesTable extends OutboxOccurrences
     return $OutboxOccurrencesTable(attachedDatabase, alias);
   }
 
+  static JsonTypeConverter2<LocationSource, int, int> $converterlocationSource =
+      const EnumIndexConverter<LocationSource>(LocationSource.values);
   static JsonTypeConverter2<QueueStatus, int, int> $converterstatus =
       const EnumIndexConverter<QueueStatus>(QueueStatus.values);
 }
@@ -271,6 +286,10 @@ class OutboxOccurrence extends DataClass
   final double longitude;
   final double? accuracyM;
   final DateTime locationCapturedAt;
+
+  /// Origem da coordenada. Ver `LocationSource` em `queue_models.dart`.
+  /// Padrão `gps` (índice 0) para as ocorrências gravadas antes do esquema 2.
+  final LocationSource locationSource;
   final DateTime createdAt;
   final QueueStatus status;
   final int attempts;
@@ -287,6 +306,7 @@ class OutboxOccurrence extends DataClass
       required this.longitude,
       this.accuracyM,
       required this.locationCapturedAt,
+      required this.locationSource,
       required this.createdAt,
       required this.status,
       required this.attempts,
@@ -307,6 +327,11 @@ class OutboxOccurrence extends DataClass
       map['accuracy_m'] = Variable<double>(accuracyM);
     }
     map['location_captured_at'] = Variable<DateTime>(locationCapturedAt);
+    {
+      map['location_source'] = Variable<int>($OutboxOccurrencesTable
+          .$converterlocationSource
+          .toSql(locationSource));
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     {
       map['status'] =
@@ -340,6 +365,7 @@ class OutboxOccurrence extends DataClass
           ? const Value.absent()
           : Value(accuracyM),
       locationCapturedAt: Value(locationCapturedAt),
+      locationSource: Value(locationSource),
       createdAt: Value(createdAt),
       status: Value(status),
       attempts: Value(attempts),
@@ -371,6 +397,8 @@ class OutboxOccurrence extends DataClass
       accuracyM: serializer.fromJson<double?>(json['accuracyM']),
       locationCapturedAt:
           serializer.fromJson<DateTime>(json['locationCapturedAt']),
+      locationSource: $OutboxOccurrencesTable.$converterlocationSource
+          .fromJson(serializer.fromJson<int>(json['locationSource'])),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       status: $OutboxOccurrencesTable.$converterstatus
           .fromJson(serializer.fromJson<int>(json['status'])),
@@ -393,6 +421,9 @@ class OutboxOccurrence extends DataClass
       'longitude': serializer.toJson<double>(longitude),
       'accuracyM': serializer.toJson<double?>(accuracyM),
       'locationCapturedAt': serializer.toJson<DateTime>(locationCapturedAt),
+      'locationSource': serializer.toJson<int>($OutboxOccurrencesTable
+          .$converterlocationSource
+          .toJson(locationSource)),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'status': serializer
           .toJson<int>($OutboxOccurrencesTable.$converterstatus.toJson(status)),
@@ -413,6 +444,7 @@ class OutboxOccurrence extends DataClass
           double? longitude,
           Value<double?> accuracyM = const Value.absent(),
           DateTime? locationCapturedAt,
+          LocationSource? locationSource,
           DateTime? createdAt,
           QueueStatus? status,
           int? attempts,
@@ -429,6 +461,7 @@ class OutboxOccurrence extends DataClass
         longitude: longitude ?? this.longitude,
         accuracyM: accuracyM.present ? accuracyM.value : this.accuracyM,
         locationCapturedAt: locationCapturedAt ?? this.locationCapturedAt,
+        locationSource: locationSource ?? this.locationSource,
         createdAt: createdAt ?? this.createdAt,
         status: status ?? this.status,
         attempts: attempts ?? this.attempts,
@@ -453,6 +486,9 @@ class OutboxOccurrence extends DataClass
       locationCapturedAt: data.locationCapturedAt.present
           ? data.locationCapturedAt.value
           : this.locationCapturedAt,
+      locationSource: data.locationSource.present
+          ? data.locationSource.value
+          : this.locationSource,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       status: data.status.present ? data.status.value : this.status,
       attempts: data.attempts.present ? data.attempts.value : this.attempts,
@@ -477,6 +513,7 @@ class OutboxOccurrence extends DataClass
           ..write('longitude: $longitude, ')
           ..write('accuracyM: $accuracyM, ')
           ..write('locationCapturedAt: $locationCapturedAt, ')
+          ..write('locationSource: $locationSource, ')
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
           ..write('attempts: $attempts, ')
@@ -498,6 +535,7 @@ class OutboxOccurrence extends DataClass
       longitude,
       accuracyM,
       locationCapturedAt,
+      locationSource,
       createdAt,
       status,
       attempts,
@@ -517,6 +555,7 @@ class OutboxOccurrence extends DataClass
           other.longitude == this.longitude &&
           other.accuracyM == this.accuracyM &&
           other.locationCapturedAt == this.locationCapturedAt &&
+          other.locationSource == this.locationSource &&
           other.createdAt == this.createdAt &&
           other.status == this.status &&
           other.attempts == this.attempts &&
@@ -535,6 +574,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
   final Value<double> longitude;
   final Value<double?> accuracyM;
   final Value<DateTime> locationCapturedAt;
+  final Value<LocationSource> locationSource;
   final Value<DateTime> createdAt;
   final Value<QueueStatus> status;
   final Value<int> attempts;
@@ -552,6 +592,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
     this.longitude = const Value.absent(),
     this.accuracyM = const Value.absent(),
     this.locationCapturedAt = const Value.absent(),
+    this.locationSource = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.status = const Value.absent(),
     this.attempts = const Value.absent(),
@@ -570,6 +611,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
     required double longitude,
     this.accuracyM = const Value.absent(),
     required DateTime locationCapturedAt,
+    this.locationSource = const Value.absent(),
     required DateTime createdAt,
     required QueueStatus status,
     this.attempts = const Value.absent(),
@@ -596,6 +638,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
     Expression<double>? longitude,
     Expression<double>? accuracyM,
     Expression<DateTime>? locationCapturedAt,
+    Expression<int>? locationSource,
     Expression<DateTime>? createdAt,
     Expression<int>? status,
     Expression<int>? attempts,
@@ -615,6 +658,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
       if (accuracyM != null) 'accuracy_m': accuracyM,
       if (locationCapturedAt != null)
         'location_captured_at': locationCapturedAt,
+      if (locationSource != null) 'location_source': locationSource,
       if (createdAt != null) 'created_at': createdAt,
       if (status != null) 'status': status,
       if (attempts != null) 'attempts': attempts,
@@ -635,6 +679,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
       Value<double>? longitude,
       Value<double?>? accuracyM,
       Value<DateTime>? locationCapturedAt,
+      Value<LocationSource>? locationSource,
       Value<DateTime>? createdAt,
       Value<QueueStatus>? status,
       Value<int>? attempts,
@@ -652,6 +697,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
       longitude: longitude ?? this.longitude,
       accuracyM: accuracyM ?? this.accuracyM,
       locationCapturedAt: locationCapturedAt ?? this.locationCapturedAt,
+      locationSource: locationSource ?? this.locationSource,
       createdAt: createdAt ?? this.createdAt,
       status: status ?? this.status,
       attempts: attempts ?? this.attempts,
@@ -690,6 +736,11 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
     if (locationCapturedAt.present) {
       map['location_captured_at'] =
           Variable<DateTime>(locationCapturedAt.value);
+    }
+    if (locationSource.present) {
+      map['location_source'] = Variable<int>($OutboxOccurrencesTable
+          .$converterlocationSource
+          .toSql(locationSource.value));
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -730,6 +781,7 @@ class OutboxOccurrencesCompanion extends UpdateCompanion<OutboxOccurrence> {
           ..write('longitude: $longitude, ')
           ..write('accuracyM: $accuracyM, ')
           ..write('locationCapturedAt: $locationCapturedAt, ')
+          ..write('locationSource: $locationSource, ')
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
           ..write('attempts: $attempts, ')
@@ -1222,6 +1274,7 @@ typedef $$OutboxOccurrencesTableCreateCompanionBuilder
   required double longitude,
   Value<double?> accuracyM,
   required DateTime locationCapturedAt,
+  Value<LocationSource> locationSource,
   required DateTime createdAt,
   required QueueStatus status,
   Value<int> attempts,
@@ -1241,6 +1294,7 @@ typedef $$OutboxOccurrencesTableUpdateCompanionBuilder
   Value<double> longitude,
   Value<double?> accuracyM,
   Value<DateTime> locationCapturedAt,
+  Value<LocationSource> locationSource,
   Value<DateTime> createdAt,
   Value<QueueStatus> status,
   Value<int> attempts,
@@ -1307,6 +1361,11 @@ class $$OutboxOccurrencesTableFilterComposer
   ColumnFilters<DateTime> get locationCapturedAt => $composableBuilder(
       column: $table.locationCapturedAt,
       builder: (column) => ColumnFilters(column));
+
+  ColumnWithTypeConverterFilters<LocationSource, LocationSource, int>
+      get locationSource => $composableBuilder(
+          column: $table.locationSource,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -1388,6 +1447,10 @@ class $$OutboxOccurrencesTableOrderingComposer
       column: $table.locationCapturedAt,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get locationSource => $composableBuilder(
+      column: $table.locationSource,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -1443,6 +1506,10 @@ class $$OutboxOccurrencesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get locationCapturedAt => $composableBuilder(
       column: $table.locationCapturedAt, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<LocationSource, int> get locationSource =>
+      $composableBuilder(
+          column: $table.locationSource, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -1520,6 +1587,7 @@ class $$OutboxOccurrencesTableTableManager extends RootTableManager<
             Value<double> longitude = const Value.absent(),
             Value<double?> accuracyM = const Value.absent(),
             Value<DateTime> locationCapturedAt = const Value.absent(),
+            Value<LocationSource> locationSource = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<QueueStatus> status = const Value.absent(),
             Value<int> attempts = const Value.absent(),
@@ -1538,6 +1606,7 @@ class $$OutboxOccurrencesTableTableManager extends RootTableManager<
             longitude: longitude,
             accuracyM: accuracyM,
             locationCapturedAt: locationCapturedAt,
+            locationSource: locationSource,
             createdAt: createdAt,
             status: status,
             attempts: attempts,
@@ -1556,6 +1625,7 @@ class $$OutboxOccurrencesTableTableManager extends RootTableManager<
             required double longitude,
             Value<double?> accuracyM = const Value.absent(),
             required DateTime locationCapturedAt,
+            Value<LocationSource> locationSource = const Value.absent(),
             required DateTime createdAt,
             required QueueStatus status,
             Value<int> attempts = const Value.absent(),
@@ -1574,6 +1644,7 @@ class $$OutboxOccurrencesTableTableManager extends RootTableManager<
             longitude: longitude,
             accuracyM: accuracyM,
             locationCapturedAt: locationCapturedAt,
+            locationSource: locationSource,
             createdAt: createdAt,
             status: status,
             attempts: attempts,

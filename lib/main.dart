@@ -469,7 +469,7 @@ class CivilDefenseHeader extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Image.asset(
-                      'assets/brand/blualert_mark.png',
+                      'assets/brand/blualert_mark_v2.png',
                       fit: BoxFit.contain,
                       semanticLabel: 'Símbolo do BluAlert',
                     ),
@@ -539,17 +539,32 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final repository = SituationRepository();
+  Timer? _situationRefreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     repository.refresh();
+    _situationRefreshTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => repository.refresh(force: true),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      repository.refresh(force: true);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _situationRefreshTimer?.cancel();
     repository.dispose();
     super.dispose();
   }

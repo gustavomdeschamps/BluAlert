@@ -19,6 +19,7 @@ supabase db push
 supabase functions deploy occurrence-session
 supabase functions deploy occurrence-confirm
 supabase functions deploy remote-config --no-verify-jwt
+supabase functions deploy situation --no-verify-jwt
 supabase functions deploy escalate-queue --no-verify-jwt
 ```
 

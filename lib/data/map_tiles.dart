@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../emergency.dart';
+
 /// Configuração da fonte de tiles do mapa.
 ///
 /// Existe para que trocar de provedor não exija reescrever a tela do mapa:
@@ -66,6 +68,21 @@ class ConfiguredMapTileProvider implements MapTileProvider {
 
   @override
   MapTileSource get active {
+    // A configuração remota tem precedência: permite trocar de provedor com o
+    // piloto em campo, sem republicar. A atribuição acompanha a troca.
+    final remote = PilotConfigService.current.value;
+    final remoteUrl = remote.mapTileUrl;
+    if (remoteUrl != null && remoteUrl.isNotEmpty) {
+      return MapTileSource(
+        id: 'remoto',
+        urlTemplate: remoteUrl,
+        attribution: remote.mapTileAttribution == null
+            ? '© OpenStreetMap contributors'
+            : '${remote.mapTileAttribution} · © OpenStreetMap contributors',
+        attributionUrl: 'https://www.openstreetmap.org/copyright',
+        maxZoom: 19,
+      );
+    }
     if (_configuredUrl.isEmpty) return openStreetMap;
     return MapTileSource(
       id: 'configurado',

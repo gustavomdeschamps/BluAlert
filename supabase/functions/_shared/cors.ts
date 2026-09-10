@@ -18,6 +18,16 @@ const allowedOrigins = new Set(
   configuredOrigins.length > 0 ? configuredOrigins : developmentOrigins,
 );
 
+function isLocalDevelopmentOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'http:' &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Cabeçalhos de CORS para a origem da requisição, quando ela for autorizada.
 /// Precisam acompanhar **todas** as respostas, não apenas o preflight: sem
 /// `Access-Control-Allow-Origin` na resposta real o navegador descarta o corpo
@@ -25,12 +35,15 @@ const allowedOrigins = new Set(
 export function corsHeadersFor(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin');
   if (origin === null) return {}; // Chamada nativa (Android): CORS não se aplica.
-  if (!allowedOrigins.has(origin)) return {};
+  // O Flutter Web escolhe uma porta livre a cada `flutter run`. Autorizar o
+  // loopback em qualquer porta mantém o desenvolvimento funcional sem abrir
+  // CORS para sites externos.
+  if (!allowedOrigins.has(origin) && !isLocalDevelopmentOrigin(origin)) return {};
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers':
       'authorization, apikey, content-type, x-client-info',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };

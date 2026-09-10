@@ -213,6 +213,9 @@ class OccurrenceQueue {
       'latitude': occurrence.latitude,
       'longitude': occurrence.longitude,
       'accuracyM': occurrence.accuracyM,
+      // A central precisa saber se a coordenada saiu do GPS ou foi corrigida
+      // à mão: muda como a equipe interpreta a precisão ao planejar a ida.
+      'locationSource': occurrence.locationSource.name,
       'media': media,
     });
 

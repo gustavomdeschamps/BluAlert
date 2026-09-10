@@ -65,6 +65,25 @@ enum QueueStatus {
 /// Tipo de evidência anexada.
 enum EvidenceKind { photo, video }
 
+/// Como a coordenada da ocorrência foi definida.
+///
+/// A distinção é operacional, não cosmética: quando a pessoa arrasta o alfinete,
+/// a precisão informada pelo GPS **deixa de descrever aquele ponto**. Mostrar o
+/// raio do GPS sobre um ponto escolhido à mão seria fingir precisão que não
+/// existe, e a equipe usaria esse raio para planejar a busca.
+enum LocationSource {
+  /// Ponto exatamente como o GPS entregou, com a precisão informada por ele.
+  gps('Localização do GPS'),
+
+  /// Ponto corrigido à mão sobre o mapa. A precisão do GPS não se aplica.
+  manuallyAdjusted('Ponto ajustado no mapa');
+
+  const LocationSource(this.label);
+  final String label;
+
+  bool get isManual => this == manuallyAdjusted;
+}
+
 /// Uma evidência guardada no aparelho, com o resumo criptográfico já calculado.
 ///
 /// O `sha256` é calculado uma única vez, na entrada da fila, e reaproveitado em
@@ -130,6 +149,7 @@ class QueuedOccurrence {
     required this.createdAt,
     required this.status,
     required this.attempts,
+    this.locationSource = LocationSource.gps,
     this.lastError,
     this.nextAttemptAt,
     this.protocol,
@@ -152,6 +172,9 @@ class QueuedOccurrence {
 
   /// Momento em que a localização foi capturada — não o momento do envio.
   final DateTime locationCapturedAt;
+
+  /// Origem da coordenada. Ver [LocationSource].
+  final LocationSource locationSource;
   final DateTime createdAt;
   final QueueStatus status;
 
@@ -200,6 +223,7 @@ class QueuedOccurrence {
         longitude: longitude,
         accuracyM: accuracyM,
         locationCapturedAt: locationCapturedAt,
+        locationSource: locationSource,
         createdAt: createdAt,
         status: status ?? this.status,
         attempts: attempts ?? this.attempts,

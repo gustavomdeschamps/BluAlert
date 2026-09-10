@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'account_flow.dart';
 import 'backend_client.dart';
 import 'emergency.dart';
+import 'location_picker.dart';
 import 'queue/evidence_compressor.dart';
 import 'queue/queue_controller.dart';
 import 'queue/queue_models.dart';
@@ -77,6 +78,10 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   String category = _categories.first.$1;
   Position? position;
   DateTime? positionCapturedAt;
+
+  /// Coordenada confirmada pela pessoa no mapa. Enquanto for nula, o ponto
+  /// ainda não foi conferido e o envio não é liberado.
+  ConfirmedLocation? confirmedLocation;
   bool locating = false;
   bool preparing = false;
   bool submitting = false;
@@ -184,12 +189,17 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
           timeLimit: Duration(seconds: 20),
         ),
       );
-      if (mounted) {
-        setState(() {
-          position = found;
-          positionCapturedAt = DateTime.now();
-        });
-      }
+      if (!mounted) return;
+      final capturedAt = DateTime.now();
+      setState(() {
+        position = found;
+        positionCapturedAt = capturedAt;
+        confirmedLocation = null;
+      });
+      // Quem está no local é a única pessoa capaz de dizer se o ponto do GPS
+      // corresponde ao risco. A confirmação é obrigatória.
+      await _confirmOnMap(
+          found.latitude, found.longitude, found.accuracy, capturedAt);
     } on _LocationProblem catch (problem) {
       if (mounted) setState(() => error = problem.message);
     } catch (_) {
@@ -202,6 +212,42 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     }
   }
 
+  Future<void> _confirmOnMap(
+    double latitude,
+    double longitude,
+    double? accuracy,
+    DateTime capturedAt,
+  ) async {
+    final result = await Navigator.of(context).push<ConfirmedLocation>(
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          initialLatitude: latitude,
+          initialLongitude: longitude,
+          gpsAccuracyM: accuracy,
+          capturedAt: capturedAt,
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      confirmedLocation = result;
+      error = null;
+    });
+  }
+
+  /// Reabre o mapa para revisar o ponto já confirmado.
+  Future<void> _reviewLocation() async {
+    final current = confirmedLocation;
+    final captured = positionCapturedAt;
+    if (current == null || captured == null) return;
+    await _confirmOnMap(
+      current.latitude,
+      current.longitude,
+      current.source.isManual ? null : current.accuracyM,
+      captured,
+    );
+  }
+
   String? _validate() {
     if (!evidence.any((item) => item.kind == EvidenceKind.photo)) {
       return 'Inclua pelo menos uma foto do risco.';
@@ -209,8 +255,8 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     if (description.text.trim().length < 15) {
       return 'Descreva o risco com pelo menos 15 caracteres.';
     }
-    if (position == null) {
-      return 'Confirme a localização da ocorrência.';
+    if (confirmedLocation == null) {
+      return 'Confirme a localização da ocorrência no mapa.';
     }
     return null;
   }
@@ -228,8 +274,7 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       builder: (sheetContext) => OccurrenceReviewSheet(
         category: category,
         description: description.text.trim(),
-        position: position!,
-        capturedAt: positionCapturedAt!,
+        location: confirmedLocation!,
         evidence: evidence,
         queue: widget.queue,
       ),
@@ -242,6 +287,7 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       submitting = true;
       error = null;
     });
+    final confirmed = confirmedLocation!;
     final occurrence = QueuedOccurrence(
       id: occurrenceId,
       // O mesmo UUID serve de chave de idempotência: se este envio for repetido
@@ -249,10 +295,13 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       idempotencyKey: occurrenceId,
       category: category,
       description: description.text.trim(),
-      latitude: position!.latitude,
-      longitude: position!.longitude,
-      accuracyM: position!.accuracy,
-      locationCapturedAt: positionCapturedAt!,
+      latitude: confirmed.latitude,
+      longitude: confirmed.longitude,
+      // Nula quando o ponto foi ajustado à mão: o raio do GPS não descreve
+      // mais aquela coordenada.
+      accuracyM: confirmed.accuracyM,
+      locationCapturedAt: confirmed.capturedAt,
+      locationSource: confirmed.source,
       createdAt: DateTime.now(),
       status: QueueStatus.savedOnDevice,
       attempts: 0,
@@ -273,6 +322,7 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       description.clear();
       position = null;
       positionCapturedAt = null;
+      confirmedLocation = null;
       category = _categories.first.$1;
       trackingId = null;
       error = null;
@@ -366,10 +416,10 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
                 const FormLabel(number: '4', text: 'Localização da ocorrência'),
                 const SizedBox(height: 10),
                 OccurrenceLocationCard(
-                  position: position,
-                  capturedAt: positionCapturedAt,
+                  location: confirmedLocation,
                   locating: locating,
-                  onTap: _locate,
+                  onCapture: _locate,
+                  onReview: confirmedLocation == null ? null : _reviewLocation,
                 ),
                 if (error != null) ...[
                   const SizedBox(height: 14),
@@ -415,8 +465,7 @@ class OccurrenceReviewSheet extends StatelessWidget {
   const OccurrenceReviewSheet({
     required this.category,
     required this.description,
-    required this.position,
-    required this.capturedAt,
+    required this.location,
     required this.evidence,
     required this.queue,
     super.key,
@@ -424,8 +473,7 @@ class OccurrenceReviewSheet extends StatelessWidget {
 
   final String category;
   final String description;
-  final Position position;
-  final DateTime capturedAt;
+  final ConfirmedLocation location;
   final List<QueuedEvidence> evidence;
   final QueueController queue;
 
@@ -467,14 +515,19 @@ class OccurrenceReviewSheet extends StatelessWidget {
                 value: description,
               ),
               _ReviewRow(
-                icon: Icons.my_location_rounded,
+                icon: location.source.isManual
+                    ? Icons.edit_location_alt_outlined
+                    : Icons.my_location_rounded,
                 label: 'Localização',
                 // Precisão exibida como o GPS informou, sem arredondar para
-                // baixo: a equipe precisa saber o raio real de busca.
-                value: '${position.latitude.toStringAsFixed(5)}, '
-                    '${position.longitude.toStringAsFixed(5)}\n'
-                    'Precisão de ${position.accuracy.round()} m · capturada às '
-                    '${TimeOfDay.fromDateTime(capturedAt).format(context)}',
+                // baixo: a equipe precisa saber o raio real de busca. Com o
+                // ponto ajustado à mão, dizemos isso em vez de repetir um
+                // raio que não descreve mais aquela coordenada.
+                value: '${location.latitude.toStringAsFixed(5)}, '
+                    '${location.longitude.toStringAsFixed(5)}\n'
+                    '${location.source.label}'
+                    '${location.accuracyM == null ? '' : ' · precisão de ${location.accuracyM!.round()} m'}'
+                    ' · ${TimeOfDay.fromDateTime(location.capturedAt).format(context)}',
               ),
               const SizedBox(height: 8),
               if (!queue.isDurable)
@@ -893,7 +946,7 @@ class OccurrenceHeader extends StatelessWidget {
           bottom: false,
           child: Row(
             children: [
-              Image.asset('assets/brand/blualert_mark.png',
+              Image.asset('assets/brand/blualert_mark_v2.png',
                   width: 48, height: 48),
               const SizedBox(width: 11),
               Expanded(
@@ -1151,35 +1204,41 @@ class _EvidenceTileState extends State<EvidenceTile> {
 
 class OccurrenceLocationCard extends StatelessWidget {
   const OccurrenceLocationCard({
-    required this.position,
-    required this.capturedAt,
+    required this.location,
     required this.locating,
-    required this.onTap,
+    required this.onCapture,
+    required this.onReview,
     super.key,
   });
 
-  final Position? position;
-  final DateTime? capturedAt;
+  /// Ponto já confirmado pela pessoa no mapa. Nulo enquanto não houver
+  /// confirmação — e sem confirmação o envio não é liberado.
+  final ConfirmedLocation? location;
   final bool locating;
-  final VoidCallback onTap;
+  final VoidCallback onCapture;
+  final VoidCallback? onReview;
 
   @override
   Widget build(BuildContext context) {
-    final located = position != null;
-    // Acima de 50 m o ponto não identifica uma casa: dizemos isso em vez de
-    // exibir um alfinete que aparenta precisão que o GPS não deu.
-    final imprecise = located && position!.accuracy > 50;
+    final confirmed = location;
+    final manual = confirmed?.source.isManual ?? false;
+    // Acima de 50 m o ponto não identifica uma casa. Só vale para ponto de GPS:
+    // num ponto escolhido à mão a precisão do GPS não descreve mais nada.
+    final imprecise = confirmed != null &&
+        !manual &&
+        confirmed.accuracyM != null &&
+        confirmed.accuracyM! > 50;
     return Material(
-      color: located ? const Color(0xFFE8F5EF) : Colors.white,
+      color: confirmed == null ? Colors.white : const Color(0xFFE8F5EF),
       borderRadius: BorderRadius.circular(15),
       child: InkWell(
-        onTap: locating ? null : onTap,
+        onTap: locating ? null : (confirmed == null ? onCapture : onReview),
         borderRadius: BorderRadius.circular(15),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: located ? _success : _line),
+            border: Border.all(color: confirmed == null ? _line : _success),
           ),
           child: Row(
             children: [
@@ -1191,36 +1250,50 @@ class OccurrenceLocationCard extends StatelessWidget {
                 )
               else
                 Icon(
-                    located
-                        ? Icons.gps_fixed_rounded
-                        : Icons.my_location_rounded,
-                    color: located ? _success : _orangeDark),
+                  confirmed == null
+                      ? Icons.my_location_rounded
+                      : (manual
+                          ? Icons.edit_location_alt_outlined
+                          : Icons.gps_fixed_rounded),
+                  color: confirmed == null ? _orangeDark : _success,
+                ),
               const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      located ? 'Localização capturada' : 'Capturar GPS agora',
+                      confirmed == null
+                          ? 'Capturar e confirmar no mapa'
+                          : 'Local confirmado',
                       style: const TextStyle(
                           color: _ink, fontWeight: FontWeight.w900),
                     ),
                     Text(
-                      !located
-                          ? 'Use o ponto exato de onde o risco foi registrado.'
-                          : 'Precisão de ${position!.accuracy.round()} m · '
-                              '${TimeOfDay.fromDateTime(capturedAt!).format(context)}',
+                      confirmed == null
+                          ? 'Você confere o ponto no mapa antes de enviar.'
+                          : '${confirmed.source.label}'
+                              '${confirmed.accuracyM == null ? '' : ' · ${confirmed.accuracyM!.round()} m'}'
+                              ' · ${TimeOfDay.fromDateTime(confirmed.capturedAt).format(context)}',
                       style: const TextStyle(color: _muted, fontSize: 11),
                     ),
                     if (imprecise)
                       const Padding(
                         padding: EdgeInsets.only(top: 3),
                         child: Text(
-                          'Precisão baixa. Descreva um ponto de referência.',
+                          'Precisão baixa. Toque para ajustar o ponto no mapa.',
                           style: TextStyle(
                               color: _waiting,
                               fontSize: 11,
                               fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    if (confirmed != null)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 3),
+                        child: Text(
+                          'Toque para revisar no mapa.',
+                          style: TextStyle(color: _muted, fontSize: 10.5),
                         ),
                       ),
                   ],

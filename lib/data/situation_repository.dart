@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../emergency.dart';
 import 'blualert_situation_provider.dart';
 import 'hydrology.dart';
 import 'measurement.dart';
@@ -93,7 +94,17 @@ class SituationRepository extends ChangeNotifier {
       _guard(
           _weather.loadMunicipalWeather, _lastWeather, 'a previsão do tempo'),
       _guard(
-        () => _weather.loadNeighborhoodForecast(officialNeighborhoods),
+        () async {
+          // Desligável pela configuração remota, sem republicar o aplicativo.
+          if (!PilotConfigService.current.value.neighborhoodForecastEnabled) {
+            return ProviderResult<List<AreaForecast>>.failure(
+              DataState.noDataAvailable,
+              message: 'A previsão por bairro está desativada pela operação.',
+              attemptedAt: _clock(),
+            );
+          }
+          return _weather.loadNeighborhoodForecast(officialNeighborhoods);
+        },
         _lastNeighborhoods,
         'a previsão por bairro',
       ),

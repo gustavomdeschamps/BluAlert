@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -147,22 +146,12 @@ class _AccountGateState extends State<AccountGate> {
     _restore();
   }
 
-  /// Verdadeiro quando a sessão do Supabase ainda vale e o perfil local existe.
-  /// Nesse caso a abertura leva direto ao aplicativo, sem pedir senha de novo.
-  bool sessionRestored = false;
-
   Future<void> _restore() async {
     try {
       profile = await vault.readProfile();
       pendingEmail = await vault.readPendingEmail();
     } catch (_) {
       profile = null;
-    }
-    // Um cadastro ainda não confirmado grava o perfil localmente antes de
-    // existir sessão. Só restauramos quando há sessão de verdade e nenhuma
-    // confirmação pendente — clicar não pode substituir autenticação.
-    if (profile != null && pendingEmail == null) {
-      sessionRestored = await backend.hasRestorableSession();
     }
     if (mounted) setState(() => state = _GateState.launch);
   }
@@ -198,7 +187,6 @@ class _AccountGateState extends State<AccountGate> {
       setState(() {
         profile = null;
         pendingEmail = null;
-        sessionRestored = false;
         state = _GateState.account;
       });
     }
@@ -216,8 +204,7 @@ class _AccountGateState extends State<AccountGate> {
             child: Center(child: CircularProgressIndicator(color: _orange))),
         _GateState.launch => SignatureLaunch(
             key: const ValueKey('launch'),
-            onComplete: () => setState(() => state =
-                sessionRestored ? _GateState.unlocked : _GateState.account)),
+            onComplete: () => setState(() => state = _GateState.account)),
         _GateState.account => AccountAccessScreen(
             key: const ValueKey('account'),
             profile: profile,
@@ -248,7 +235,6 @@ class _AccountGateState extends State<AccountGate> {
             : widget.builder(
                 profile!,
                 () => setState(() {
-                  sessionRestored = false;
                   state = _GateState.account;
                 }),
                 _remove,
@@ -293,9 +279,9 @@ class _SignatureLaunchState extends State<SignatureLaunch>
   void initState() {
     super.initState();
     controller = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 2800))
+        vsync: this, duration: const Duration(milliseconds: 2600))
       ..forward();
-    timer = Timer(const Duration(milliseconds: 3600), widget.onComplete);
+    timer = Timer(const Duration(milliseconds: 3000), widget.onComplete);
   }
 
   @override
@@ -322,12 +308,15 @@ class _SignatureLaunchState extends State<SignatureLaunch>
             animation: animation,
             builder: (context, _) {
               final value = animation.value;
-              final logo = const Interval(0, .48, curve: Curves.easeOutBack)
+              final logo = const Interval(.10, .56, curve: Curves.easeOutBack)
                   .transform(value);
-              final title = const Interval(.28, .68, curve: Curves.easeOutCubic)
+              final title = const Interval(.46, .76, curve: Curves.easeOutCubic)
                   .transform(value);
               final phrase =
-                  const Interval(.50, .88, curve: Curves.easeOutCubic)
+                  const Interval(.64, .94, curve: Curves.easeOutCubic)
+                      .transform(value);
+              final protection =
+                  const Interval(.34, .82, curve: Curves.easeOutCubic)
                       .transform(value);
               return Stack(children: [
                 Positioned.fill(
@@ -358,45 +347,53 @@ class _SignatureLaunchState extends State<SignatureLaunch>
                           const Spacer(),
                           Opacity(
                               opacity: logo.clamp(0, 1),
-                              child: Transform.scale(
-                                  scale: .72 + logo * .28,
-                                  child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        Container(
-                                            width: 224,
-                                            height: 224,
-                                            decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                border: Border.all(
+                              child: Transform.translate(
+                                  offset: Offset(0, 26 * (1 - logo)),
+                                  child: Transform.scale(
+                                      scale: .78 + logo * .22,
+                                      child: Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            Container(
+                                                width: 230 + protection * 18,
+                                                height: 230 + protection * 18,
+                                                decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                        color: Colors.white
+                                                            .withValues(
+                                                                alpha: .16 *
+                                                                    (1 -
+                                                                        protection))))),
+                                            Container(
+                                                width: 206,
+                                                height: 206,
+                                                decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
                                                     color: Colors.white
                                                         .withValues(
-                                                            alpha: .13)))),
-                                        Container(
-                                            width: 184,
-                                            height: 184,
-                                            decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: Colors.white
-                                                    .withValues(alpha: .06),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                      color: _orange.withValues(
-                                                          alpha:
-                                                              .12 + logo * .14),
-                                                      blurRadius: 48,
-                                                      spreadRadius: 6)
-                                                ])),
-                                        Hero(
-                                            tag: 'blualert-mark',
-                                            child: Image.asset(
-                                                'assets/brand/blualert_mark.png',
-                                                width: 174,
-                                                height: 174,
-                                                fit: BoxFit.contain,
-                                                semanticLabel:
-                                                    'Símbolo do BluAlert')),
-                                      ]))),
+                                                            alpha: .045),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                          color: _orange
+                                                              .withValues(
+                                                                  alpha: .10 +
+                                                                      protection *
+                                                                          .20),
+                                                          blurRadius: 54,
+                                                          spreadRadius: 4 +
+                                                              protection * 8)
+                                                    ])),
+                                            Hero(
+                                                tag: 'blualert-mark',
+                                                child: Image.asset(
+                                                    'assets/brand/blualert_mark_v2.png',
+                                                    width: 196,
+                                                    height: 196,
+                                                    fit: BoxFit.contain,
+                                                    semanticLabel:
+                                                        'Símbolo do BluAlert')),
+                                          ])))),
                           const SizedBox(height: 27),
                           Opacity(
                               opacity: title.clamp(0, 1),
@@ -449,6 +446,18 @@ class LaunchRiverPainter extends CustomPainter {
   final double progress;
   @override
   void paint(Canvas canvas, Size size) {
+    final ridge = Path()
+      ..moveTo(0, size.height * .44)
+      ..lineTo(size.width * .20, size.height * .31)
+      ..lineTo(size.width * .38, size.height * .42)
+      ..lineTo(size.width * .61, size.height * .27)
+      ..lineTo(size.width * .82, size.height * .40)
+      ..lineTo(size.width, size.height * .32)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(ridge, Paint()..color = const Color(0x3D0A3157));
+
     final contour = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
@@ -488,14 +497,17 @@ class LaunchRiverPainter extends CustomPainter {
             Color(0xAA6BC6F2),
             Color(0x00FFFFFF)
           ]).createShader(Offset.zero & size));
-    final pulse = math.sin(progress * math.pi * 2).abs();
-    canvas.drawCircle(
-        Offset(size.width * .5, size.height * .42),
-        108 + pulse * 8,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = _orange.withValues(alpha: .08));
+    final pulseProgress = ((progress - .34) / .52).clamp(0.0, 1.0);
+    for (var ring = 0; ring < 2; ring++) {
+      final ringProgress = (pulseProgress - ring * .16).clamp(0.0, 1.0);
+      canvas.drawCircle(
+          Offset(size.width * .5, size.height * .42),
+          92 + ringProgress * 66,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4
+            ..color = _orange.withValues(alpha: .22 * (1 - ringProgress)));
+    }
   }
 
   @override
@@ -546,7 +558,9 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
   void initState() {
     super.initState();
     awaitingConfirmation = widget.pendingConfirmationEmail != null;
-    loginMode = !awaitingConfirmation;
+    // Primeiro uso: cadastro. Depois que um cadastro foi salvo neste aparelho:
+    // login. Uma confirmação pendente continua tendo precedência sobre ambos.
+    loginMode = !awaitingConfirmation && widget.profile != null;
     email.text = widget.pendingConfirmationEmail ?? widget.profile?.email ?? '';
     shakeController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 380));
@@ -740,6 +754,22 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
     await shakeController.forward(from: 0);
   }
 
+  bool get emailDiffersFromSavedProfile {
+    final saved = widget.profile?.email.trim().toLowerCase();
+    final typed = email.text.trim().toLowerCase();
+    return saved != null &&
+        saved.isNotEmpty &&
+        typed.isNotEmpty &&
+        saved != typed;
+  }
+
+  void restoreSavedEmail() {
+    setState(() {
+      email.text = widget.profile!.email;
+      message = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final shake = TweenSequence<double>([
@@ -761,7 +791,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                   child: Row(children: [
                     Hero(
                         tag: 'blualert-mark',
-                        child: Image.asset('assets/brand/blualert_mark.png',
+                        child: Image.asset('assets/brand/blualert_mark_v2.png',
                             width: 72, height: 72)),
                     const SizedBox(width: 15),
                     Expanded(
@@ -889,7 +919,17 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
           label: 'E-mail',
           icon: Icons.alternate_email_rounded,
           keyboardType: TextInputType.emailAddress,
+          onChanged: (_) => setState(() => message = null),
         ),
+        if (emailDiffersFromSavedProfile)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: restoreSavedEmail,
+              icon: const Icon(Icons.history_rounded, size: 18),
+              label: Text('Usar o e-mail salvo: ${widget.profile!.email}'),
+            ),
+          ),
         const SizedBox(height: 12),
         AppField(
           controller: password,
