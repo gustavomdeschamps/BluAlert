@@ -69,6 +69,12 @@ class OccurrenceScreen extends StatefulWidget {
 }
 
 class _OccurrenceScreenState extends State<OccurrenceScreen> {
+  static const _testLocationEnabled =
+      bool.fromEnvironment('TEST_LOCATION_ENABLED', defaultValue: false);
+  static const _testAddress =
+      'R. São Paulo, 1147 - Bloco A - Victor Konder, Blumenau - SC, 89012-001';
+  static const _testLatitude = -26.907254713;
+  static const _testLongitude = -49.07648278;
   final picker = ImagePicker();
   final description = TextEditingController();
   final evidence = <QueuedEvidence>[];
@@ -94,6 +100,17 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   void initState() {
     super.initState();
     occurrenceId = backend.uuid();
+    if (_testLocationEnabled) {
+      final capturedAt = DateTime.now();
+      positionCapturedAt = capturedAt;
+      confirmedLocation = ConfirmedLocation(
+        latitude: _testLatitude,
+        longitude: _testLongitude,
+        accuracyM: null,
+        capturedAt: capturedAt,
+        source: LocationSource.testAddress,
+      );
+    }
   }
 
   @override
@@ -212,12 +229,32 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     }
   }
 
+  Future<void> _useTestLocation() async {
+    final capturedAt = DateTime.now();
+    setState(() {
+      position = null;
+      positionCapturedAt = capturedAt;
+      confirmedLocation = null;
+      error = null;
+    });
+    await _confirmOnMap(
+      _testLatitude,
+      _testLongitude,
+      null,
+      capturedAt,
+      initialSource: LocationSource.testAddress,
+      testAddress: _testAddress,
+    );
+  }
+
   Future<void> _confirmOnMap(
     double latitude,
     double longitude,
     double? accuracy,
-    DateTime capturedAt,
-  ) async {
+    DateTime capturedAt, {
+    LocationSource initialSource = LocationSource.gps,
+    String? testAddress,
+  }) async {
     final result = await Navigator.of(context).push<ConfirmedLocation>(
       MaterialPageRoute(
         builder: (_) => LocationPickerScreen(
@@ -225,6 +262,8 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
           initialLongitude: longitude,
           gpsAccuracyM: accuracy,
           capturedAt: capturedAt,
+          initialSource: initialSource,
+          testAddress: testAddress,
         ),
       ),
     );
@@ -245,6 +284,8 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       current.longitude,
       current.source.isManual ? null : current.accuracyM,
       captured,
+      initialSource: current.source,
+      testAddress: current.source.isTest ? _testAddress : null,
     );
   }
 
@@ -316,13 +357,22 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   }
 
   void _startAnother() {
+    final capturedAt = DateTime.now();
     setState(() {
       occurrenceId = backend.uuid();
       evidence.clear();
       description.clear();
       position = null;
-      positionCapturedAt = null;
-      confirmedLocation = null;
+      positionCapturedAt = _testLocationEnabled ? capturedAt : null;
+      confirmedLocation = _testLocationEnabled
+          ? ConfirmedLocation(
+              latitude: _testLatitude,
+              longitude: _testLongitude,
+              accuracyM: null,
+              capturedAt: capturedAt,
+              source: LocationSource.testAddress,
+            )
+          : null;
       category = _categories.first.$1;
       trackingId = null;
       error = null;
@@ -421,6 +471,26 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
                   onCapture: _locate,
                   onReview: confirmedLocation == null ? null : _reviewLocation,
                 ),
+                if (_testLocationEnabled) ...[
+                  const SizedBox(height: 10),
+                  Semantics(
+                    button: true,
+                    label: 'Usar o endereço fixo de teste do SENAI Blumenau',
+                    child: OutlinedButton.icon(
+                      onPressed: locating ? null : _useTestLocation,
+                      icon: const Icon(Icons.science_outlined),
+                      label: const Text('Usar endereço de teste'),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'MODO DE TESTE · Rua São Paulo, 1147, Victor Konder. O painel identificará este registro como teste.',
+                    style: TextStyle(
+                        color: _waiting,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ],
                 if (error != null) ...[
                   const SizedBox(height: 14),
                   ErrorNotice(text: error!),
@@ -755,6 +825,18 @@ class OccurrenceStatusCard extends StatelessWidget {
           if (occurrence.lastError != null && !confirmed) ...[
             const SizedBox(height: 12),
             ErrorNotice(text: occurrence.lastError!),
+          ],
+          if (occurrence.status == QueueStatus.waitingConnection) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => queue.retry(occurrence.id),
+                style: FilledButton.styleFrom(backgroundColor: _navy),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Tentar enviar agora'),
+              ),
+            ),
           ],
           if (occurrence.status == QueueStatus.actionRequired) ...[
             const SizedBox(height: 12),

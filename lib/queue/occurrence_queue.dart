@@ -216,6 +216,7 @@ class OccurrenceQueue {
       // A central precisa saber se a coordenada saiu do GPS ou foi corrigida
       // à mão: muda como a equipe interpreta a precisão ao planejar a ida.
       'locationSource': occurrence.locationSource.name,
+      'isTest': occurrence.locationSource.isTest,
       'media': media,
     });
 

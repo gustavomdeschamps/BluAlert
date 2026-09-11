@@ -29,20 +29,17 @@ Deno.serve(async (request) => {
     ]);
     if ((hourCount ?? 0) >= config.hourly_report_limit || (dayCount ?? 0) >= config.daily_report_limit) return json({ error: 'RATE_LIMITED' }, 429, cors);
 
-    const resident = body.resident ?? {};
-    const fullName = String(resident.fullName ?? '').trim();
-    const phone = String(resident.phone ?? '').replace(/[^+0-9]/g, '');
-    if (fullName.length < 3 || !/^\+[1-9][0-9]{9,14}$/.test(phone)) throw new Error('INVALID_PROFILE');
-    const { error: profileError } = await client.from('profiles').upsert({
-      id: user.id,
-      full_name: fullName,
-      phone,
-      reference_address: String(resident.referenceAddress ?? '').trim() || null,
-      reference_latitude: resident.latitude,
-      reference_longitude: resident.longitude,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'id' });
+    // O perfil já é criado e validado no cadastro. A fila offline envia apenas
+    // a ocorrência: exigir novamente nome e telefone aqui fazia o payload real
+    // do Flutter falhar com INVALID_PROFILE antes mesmo de criar a linha.
+    const { data: profile, error: profileError } = await client.from('profiles')
+      .select('id,full_name,phone')
+      .eq('id', user.id)
+      .maybeSingle();
     if (profileError) throw profileError;
+    if (!profile || profile.full_name.trim().length < 3 || !/^\+[1-9][0-9]{9,14}$/.test(profile.phone)) {
+      throw new Error('INVALID_PROFILE');
+    }
     const { data: occurrence, error: occurrenceError } = await client.from('occurrences').upsert({
       id: occurrenceId,
       reporter_id: user.id,
@@ -52,6 +49,8 @@ Deno.serve(async (request) => {
       latitude: body.latitude,
       longitude: body.longitude,
       accuracy_m: body.accuracyM,
+      location_source: body.locationSource === 'testAddress' ? 'test_address' : body.locationSource === 'manuallyAdjusted' ? 'manually_adjusted' : 'gps',
+      is_test: body.isTest === true,
       status: 'uploading',
     }, { onConflict: 'reporter_id,idempotency_key', ignoreDuplicates: true }).select('id,status,received_at,protocol').maybeSingle();
     if (occurrenceError) throw occurrenceError;

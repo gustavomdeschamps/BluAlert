@@ -76,12 +76,18 @@ enum LocationSource {
   gps('Localização do GPS'),
 
   /// Ponto corrigido à mão sobre o mapa. A precisão do GPS não se aplica.
-  manuallyAdjusted('Ponto ajustado no mapa');
+  manuallyAdjusted('Ponto ajustado no mapa'),
+
+  /// Endereço conhecido usado quando o computador de demonstração bloqueia o
+  /// GPS. O servidor e o painel preservam esta origem para que um teste nunca
+  /// seja confundido com uma ocorrência real.
+  testAddress('Endereço fixo de teste');
 
   const LocationSource(this.label);
   final String label;
 
-  bool get isManual => this == manuallyAdjusted;
+  bool get isManual => this != gps;
+  bool get isTest => this == testAddress;
 }
 
 /// Uma evidência guardada no aparelho, com o resumo criptográfico já calculado.

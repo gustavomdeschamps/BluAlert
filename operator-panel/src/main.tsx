@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
+import './scanner.css';
 import { supabase } from './supabase';
 import type { QueueItem, Status } from './types';
 
@@ -10,7 +11,7 @@ const categoryName: Record<string, string> = {
   flood: 'Alagamento', landslide: 'Deslizamento', tree_or_road: 'Árvore ou via',
   structural_risk: 'Risco estrutural', other: 'Outro risco',
 };
-const priorityName = ['Sem classificação', 'Baixa', 'Moderada', 'Alta', 'Urgente', 'Crítica'];
+const urgencyName = (priority: number) => priority >= 4 ? 'Crítico' : priority >= 3 ? 'Médio' : 'Baixo';
 
 const BLUMENAU = { lat: -26.9194, lon: -49.0661 };
 
@@ -74,7 +75,9 @@ function Operations() {
   }
   useEffect(() => {
     load();
-    const channel = supabase.channel('operations').on('postgres_changes', { event: '*', schema: 'public', table: 'occurrences' }, load)
+    const channel = supabase.channel('operations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'occurrences' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_suggestions' }, load)
       .subscribe(status => setConnection(status === 'SUBSCRIBED' ? 'live' : 'recovering'));
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -82,6 +85,17 @@ function Operations() {
     if (!current) return;
     const { error } = await supabase.rpc('change_occurrence_status', { target_occurrence: current.id, target_status: status, change_reason: 'Ação no painel operacional' });
     if (error) setError('A mudança não foi confirmada pelo servidor.'); else { await load(); if (status === 'resolved') setSelected(null); }
+  }
+  async function confirmPriority(priority: number) {
+    if (!current) return;
+    const label = urgencyName(priority);
+    const { error } = await supabase.rpc('confirm_occurrence_priority', {
+      target_occurrence: current.id,
+      target_priority: priority,
+      justification: `Classificação ${label} confirmada no painel operacional`,
+    });
+    if (error) setError(`A prioridade não foi confirmada: ${error.message}`);
+    else await load();
   }
   const sorted = useMemo(() => [...items].sort((a,b) => b.effective_priority-a.effective_priority || +new Date(a.created_at)-+new Date(b.created_at)), [items]);
   return <main className="ops-shell">
@@ -92,11 +106,11 @@ function Operations() {
       <Map items={items} selected={selected} onSelect={setSelected} />
       <aside className="queue"><div className="queue-title"><div><p className="eyebrow">FILA ATIVA</p><h2>{items.length} ocorrências</h2></div><button className="refresh" onClick={load} aria-label="Atualizar fila">↻</button></div>
         <div className="queue-list">{sorted.length === 0 ? <div className="empty"><strong>Nenhuma ocorrência ativa</strong><span>A conexão permanece aberta para novos registros.</span></div> : sorted.map(item => <button key={item.id} className={`queue-item p${item.effective_priority} ${selected === item.id ? 'selected' : ''}`} onClick={() => setSelected(item.id)}>
-          <span className="priority">P{item.effective_priority} · {priorityName[item.effective_priority]}</span><strong>{categoryName[item.category]}</strong><span className="description">{item.description}</span>
+          <span className="priority">{urgencyName(item.effective_priority)} · nível {item.effective_priority}</span>{item.is_test && <span className="pilot">TESTE</span>}<strong>{categoryName[item.category]}</strong><span className="description">{item.description}</span>
           <span className="reason">{item.ordering_reason}</span><time>{new Date(item.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</time>
         </button>)}</div>
       </aside>
-      {current && <Detail item={current} onClose={() => setSelected(null)} onStatus={changeStatus} />}
+      {current && <Detail item={current} onClose={() => setSelected(null)} onStatus={changeStatus} onPriority={confirmPriority} />}
     </section>
   </main>;
 }
@@ -266,12 +280,53 @@ function Map({ items, selected, onSelect }: { items: QueueItem[]; selected: stri
   );
 }
 
-function Detail({item,onClose,onStatus}:{item:QueueItem;onClose:()=>void;onStatus:(s:Status)=>void}) {
-  return <section className="detail" aria-label="Detalhe da ocorrência"><div className="detail-head"><div><span className={`priority-badge p${item.effective_priority}`}>P{item.effective_priority} {priorityName[item.effective_priority]}</span><h2>{categoryName[item.category]}</h2><code>{item.protocol}</code></div><button className="close" onClick={onClose} aria-label="Fechar detalhe">×</button></div>
-    <div className="rule-callout"><strong>{item.ordering_reason}</strong><span>{item.hard_rule_priority > 0 ? 'Palavras de risco à vida detectadas. A regra tem precedência sobre qualquer IA.' : item.ai_rationale ?? 'Classificação por tempo e ordem de chegada.'}</span></div>
+type Evidence = { id: string; kind: 'photo' | 'video' | 'thumbnail'; object_path: string; mime_type: string };
+
+function EvidenceScanner({ item }: { item: QueueItem }) {
+  const [evidence, setEvidence] = useState<Array<Evidence & { url: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    async function loadEvidence() {
+      setLoading(true); setError('');
+      const result = await supabase.from('occurrence_media')
+        .select('id,kind,object_path,mime_type').eq('occurrence_id', item.id);
+      if (result.error) { if (active) { setError('Não foi possível abrir as evidências.'); setLoading(false); } return; }
+      const signed = await Promise.all(((result.data ?? []) as Evidence[]).map(async media => {
+        const url = await supabase.storage.from('occurrence-media').createSignedUrl(media.object_path, 3600);
+        return url.data?.signedUrl ? { ...media, url: url.data.signedUrl } : null;
+      }));
+      if (active) {
+        const available = signed.filter(Boolean) as Array<Evidence & { url: string }>;
+        setEvidence(available);
+        if (available.length === 0) setError('A foto existe, mas esta conta não recebeu permissão para abri-la.');
+        setLoading(false);
+      }
+    }
+    loadEvidence();
+    return () => { active = false; };
+  }, [item.id]);
+
+  const photo = evidence.find(media => media.kind === 'photo' || media.kind === 'thumbnail');
+  return <section className="scanner" aria-label="Análise visual da evidência">
+    <div className="scanner-head"><div><span>SCANNER DE EVIDÊNCIA</span><strong>{item.ai_rationale ? 'Sugestão disponível' : 'Aguardando IA local'}</strong></div><i className={item.ai_rationale ? 'ready' : 'pending'} /></div>
+    <div className={`scan-frame ${loading ? 'scanning' : ''}`}>
+      {loading ? <div className="media-state">Carregando foto protegida…</div> : error ? <div className="media-state error">{error}</div> : photo ? <img src={photo.url} alt="Foto enviada na ocorrência" /> : <div className="media-state">Nenhuma foto disponível.</div>}
+      {loading && <span className="scan-line" />}
+    </div>
+    <div className="scanner-result"><span>Leitura assistida</span><p>{item.ai_rationale ?? 'O modelo visual do Dell ainda não devolveu uma sugestão. As regras de risco e o tempo de espera continuam ativos.'}</p></div>
+  </section>;
+}
+
+function Detail({item,onClose,onStatus,onPriority}:{item:QueueItem;onClose:()=>void;onStatus:(s:Status)=>void;onPriority:(p:number)=>void}) {
+  return <section className="detail" aria-label="Detalhe da ocorrência"><div className="detail-head"><div><span className={`priority-badge p${item.effective_priority}`}>{urgencyName(item.effective_priority)} · nível {item.effective_priority}</span>{item.is_test && <span className="pilot">OCORRÊNCIA DE TESTE</span>}<h2>{categoryName[item.category]}</h2><code>{item.protocol}</code></div><button className="close" onClick={onClose} aria-label="Fechar detalhe">×</button></div>
+    <EvidenceScanner item={item} />
+    <div className="rule-callout"><strong>{item.ordering_reason}</strong><span>{item.hard_rule_priority > 0 ? 'Palavras de risco à vida detectadas. A regra tem precedência sobre qualquer IA.' : item.ai_rationale ? `Sugestão da IA: ${item.ai_rationale}` : 'IA ainda não analisou. Classificação segura por tempo e ordem de chegada.'}</span></div>
     <dl><div><dt>Recebida</dt><dd>{new Date(item.received_at).toLocaleString('pt-BR')}</dd></div><div><dt>Precisão GPS</dt><dd>{item.accuracy_m?.toFixed(0) ?? '—'} m</dd></div></dl>
     <h3>Relato</h3><p className="report">{item.description}</p>
     <a className="coordinates" href={`https://www.openstreetmap.org/?mlat=${item.latitude}&mlon=${item.longitude}#map=18/${item.latitude}/${item.longitude}`} target="_blank" rel="noreferrer">{item.latitude.toFixed(6)}, {item.longitude.toFixed(6)}</a>
+    <h3>Confirmar urgência</h3><div className="triage-actions"><button onClick={()=>onPriority(2)}>Baixo</button><button onClick={()=>onPriority(3)}>Médio</button><button className="critical" onClick={()=>onPriority(5)}>Crítico</button></div>
     <div className="actions"><button onClick={()=>onStatus('opened')}>Abrir</button><button onClick={()=>onStatus('dispatched')}>Despachar</button><button className="resolve" onClick={()=>onStatus('resolved')}>Resolver</button></div>
   </section>;
 }

@@ -337,6 +337,12 @@ class BackendClient {
         'PHOTO_REQUIRED' => 'Inclua pelo menos uma foto da ocorrência.',
         'INVALID_MEDIA' =>
           'Uma evidência não atende aos limites de tamanho ou formato.',
+        'INVALID_PROFILE' =>
+          'Seu perfil está incompleto no servidor. Saia e entre novamente antes de reenviar.',
+        'INVALID_LOCATION' =>
+          'A localização da ocorrência não foi aceita pelo servidor.',
+        'INVALID_OCCURRENCE' =>
+          'Revise o tipo e a descrição da ocorrência antes de reenviar.',
         _ =>
           'A central não confirmou o recebimento. O envio não será marcado como recebido.',
       };

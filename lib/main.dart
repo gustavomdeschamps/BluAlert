@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'account_flow.dart';
+import 'accessibility.dart';
 import 'data/map_tiles.dart';
 import 'data/municipal_geo.dart';
 import 'data/situation_repository.dart';
@@ -21,6 +22,7 @@ void main() {
   // fallback seguro (modo piloto ligado, 199 visível), então a interface nunca
   // fica bloqueada esperando o servidor.
   unawaited(PilotConfigService().load());
+  unawaited(AccessibilityController.instance.load());
   runApp(const BluAlertApp());
 }
 
@@ -49,88 +51,103 @@ class BluAlertApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'BluAlert Blumenau',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: canvas,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: navy,
-          primary: navy,
-          secondary: orange,
-          error: danger,
-          surface: Colors.white,
-        ),
-        fontFamily: 'Arial',
-        textTheme: const TextTheme(
-          headlineLarge: TextStyle(
-            color: ink,
-            fontWeight: FontWeight.w900,
-            fontSize: 30,
-            height: 1.04,
-            letterSpacing: -1.1,
-          ),
-          headlineMedium: TextStyle(
-            color: ink,
-            fontWeight: FontWeight.w900,
-            fontSize: 24,
-            height: 1.08,
-            letterSpacing: -.7,
-          ),
-          titleLarge: TextStyle(
-            color: ink,
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
-          ),
-          titleMedium: TextStyle(
-            color: ink,
-            fontWeight: FontWeight.w800,
-            fontSize: 15,
-          ),
-          bodyLarge: TextStyle(color: ink, height: 1.42),
-          bodyMedium: TextStyle(color: muted, height: 1.4),
-        ),
-        cardTheme: CardThemeData(
-          margin: EdgeInsets.zero,
-          elevation: 0,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: Color(0xFFE1E6E9)),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(48, 50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+    final accessibility = AccessibilityController.instance;
+    return AnimatedBuilder(
+      animation: accessibility,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'BluAlert Blumenau',
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(
+              textScaler: TextScaler.linear(accessibility.textScale),
+              disableAnimations: accessibility.reduceMotion,
+              highContrast: accessibility.highContrast,
             ),
-            textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            child: child!,
+          );
+        },
+        theme: ThemeData(
+          useMaterial3: true,
+          scaffoldBackgroundColor: canvas,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: navy,
+            primary: accessibility.highContrast ? navyDark : navy,
+            secondary: orange,
+            error: danger,
+            surface: Colors.white,
+          ),
+          fontFamily: 'Arial',
+          textTheme: const TextTheme(
+            headlineLarge: TextStyle(
+              color: ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 30,
+              height: 1.04,
+              letterSpacing: -1.1,
+            ),
+            headlineMedium: TextStyle(
+              color: ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 24,
+              height: 1.08,
+              letterSpacing: -.7,
+            ),
+            titleLarge: TextStyle(
+              color: ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+            ),
+            titleMedium: TextStyle(
+              color: ink,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+            bodyLarge: TextStyle(color: ink, height: 1.42),
+            bodyMedium: TextStyle(color: muted, height: 1.4),
+          ),
+          cardTheme: CardThemeData(
+            margin: EdgeInsets.zero,
+            elevation: 0,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: Color(0xFFE1E6E9)),
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(48, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Color(0xFFD8DFE3)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Color(0xFFD8DFE3)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: orange, width: 2),
+            ),
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFD8DFE3)),
+        home: AccountGate(
+          builder: (profile, lock, removeProfile) => AppShell(
+            profile: profile,
+            onLock: lock,
+            onRemoveProfile: removeProfile,
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFD8DFE3)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: orange, width: 2),
-          ),
-        ),
-      ),
-      home: AccountGate(
-        builder: (profile, lock, removeProfile) => AppShell(
-          profile: profile,
-          onLock: lock,
-          onRemoveProfile: removeProfile,
         ),
       ),
     );
@@ -183,6 +200,11 @@ class _AppShellState extends State<AppShell> {
         profile: widget.profile,
         onNavigate: (value) => setState(() => index = value),
         onAccount: () => _showAccount(context),
+        onAccessibility: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const AccessibilityScreen(),
+          ),
+        ),
       ),
       const RealMapScreen(),
       if (controller != null)
@@ -323,6 +345,22 @@ class _AppShellState extends State<AppShell> {
                     label: const Text('Meus registros'),
                   ),
                 ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AccessibilityScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.accessibility_new_rounded),
+                  label: const Text('Acessibilidade'),
+                ),
+              ),
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
@@ -529,11 +567,13 @@ class HomeScreen extends StatefulWidget {
     required this.profile,
     required this.onNavigate,
     required this.onAccount,
+    required this.onAccessibility,
     super.key,
   });
   final ResidentProfile profile;
   final ValueChanged<int> onNavigate;
   final VoidCallback onAccount;
+  final VoidCallback onAccessibility;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -602,6 +642,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ],
                       ),
                     ),
+                    Semantics(
+                      button: true,
+                      label: 'Abrir configurações de acessibilidade',
+                      child: IconButton.filledTonal(
+                        tooltip: 'Acessibilidade',
+                        onPressed: widget.onAccessibility,
+                        style: IconButton.styleFrom(
+                          backgroundColor: navy.withValues(alpha: .09),
+                          foregroundColor: navy,
+                        ),
+                        icon: const Icon(Icons.accessibility_new_rounded),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     IconButton.filledTonal(
                       tooltip: 'Abrir perfil',
                       onPressed: widget.onAccount,
@@ -697,6 +751,9 @@ class RealMapScreen extends StatefulWidget {
 }
 
 class _RealMapScreenState extends State<RealMapScreen> {
+  static const testLocationEnabled =
+      bool.fromEnvironment('TEST_LOCATION_ENABLED', defaultValue: false);
+  static const testPoint = LatLng(-26.907254713, -49.07648278);
   static const blumenauCenter = LatLng(
     BlumenauMapBounds.centerLatitude,
     BlumenauMapBounds.centerLongitude,
@@ -722,6 +779,7 @@ class _RealMapScreenState extends State<RealMapScreen> {
   Position? currentPosition;
   LocationPermission? permission;
   bool locating = false;
+  bool fixedTestLocation = false;
   String? locationMessage;
   StreamSubscription<Position>? positionSubscription;
 
@@ -733,7 +791,14 @@ class _RealMapScreenState extends State<RealMapScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => locateUser());
+    if (testLocationEnabled) {
+      fixedTestLocation = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        mapController.move(testPoint, 17);
+      });
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => locateUser());
+    }
     _loadBoundary();
   }
 
@@ -758,6 +823,14 @@ class _RealMapScreenState extends State<RealMapScreen> {
   }
 
   Future<void> locateUser() async {
+    if (testLocationEnabled) {
+      setState(() {
+        fixedTestLocation = true;
+        locationMessage = null;
+      });
+      mapController.move(testPoint, 17);
+      return;
+    }
     setState(() {
       locating = true;
       locationMessage = null;
@@ -816,9 +889,11 @@ class _RealMapScreenState extends State<RealMapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userPoint = currentPosition == null
-        ? null
-        : LatLng(currentPosition!.latitude, currentPosition!.longitude);
+    final userPoint = fixedTestLocation
+        ? testPoint
+        : currentPosition == null
+            ? null
+            : LatLng(currentPosition!.latitude, currentPosition!.longitude);
     return Column(
       children: [
         const CivilDefenseHeader(compact: true),
@@ -861,7 +936,7 @@ class _RealMapScreenState extends State<RealMapScreen> {
                           ),
                       ],
                     ),
-                  if (userPoint != null)
+                  if (userPoint != null && currentPosition != null)
                     CircleLayer(
                       circles: [
                         CircleMarker(
@@ -910,6 +985,7 @@ class _RealMapScreenState extends State<RealMapScreen> {
                 right: 14,
                 child: MapStatusPanel(
                   position: currentPosition,
+                  fixedTestLocation: fixedTestLocation,
                   locating: locating,
                   message: locationMessage,
                   onRetry: locateUser,
@@ -1100,6 +1176,7 @@ class MapStatusPanel extends StatelessWidget {
     required this.locating,
     required this.message,
     required this.onRetry,
+    this.fixedTestLocation = false,
     super.key,
   });
 
@@ -1107,6 +1184,7 @@ class MapStatusPanel extends StatelessWidget {
   final bool locating;
   final String? message;
   final VoidCallback onRetry;
+  final bool fixedTestLocation;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -1118,15 +1196,18 @@ class MapStatusPanel extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: (message != null ? orange : success)
-                      .withValues(alpha: .12),
+                  color:
+                      (message != null && !fixedTestLocation ? orange : success)
+                          .withValues(alpha: .12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  message != null
+                  message != null && !fixedTestLocation
                       ? Icons.location_disabled_rounded
                       : Icons.gps_fixed_rounded,
-                  color: message != null ? orangeDark : success,
+                  color: message != null && !fixedTestLocation
+                      ? orangeDark
+                      : success,
                 ),
               ),
               const SizedBox(width: 11),
@@ -1135,19 +1216,23 @@ class MapStatusPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      locating
-                          ? 'Localizando você...'
-                          : position != null
-                              ? 'Sua localização em tempo real'
-                              : 'Localização ainda não disponível',
+                      fixedTestLocation
+                          ? 'Localização fixa de teste'
+                          : locating
+                              ? 'Localizando você...'
+                              : position != null
+                                  ? 'Sua localização em tempo real'
+                                  : 'Localização ainda não disponível',
                       style: const TextStyle(
                           fontWeight: FontWeight.w900, color: ink),
                     ),
                     Text(
-                      message ??
-                          (position == null
-                              ? 'O mapa está centralizado em Blumenau.'
-                              : 'Precisão aproximada: ${position!.accuracy.round()} m'),
+                      fixedTestLocation
+                          ? 'Rua São Paulo, 1147 · Victor Konder'
+                          : message ??
+                              (position == null
+                                  ? 'O mapa está centralizado em Blumenau.'
+                                  : 'Precisão aproximada: ${position!.accuracy.round()} m'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: muted, fontSize: 11),
@@ -1155,7 +1240,7 @@ class MapStatusPanel extends StatelessWidget {
                   ],
                 ),
               ),
-              if (message != null)
+              if (message != null && !fixedTestLocation)
                 IconButton(
                   tooltip: 'Tentar localizar novamente',
                   onPressed: onRetry,

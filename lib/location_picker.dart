@@ -52,6 +52,8 @@ class LocationPickerScreen extends StatefulWidget {
     required this.initialLongitude,
     required this.gpsAccuracyM,
     required this.capturedAt,
+    this.initialSource = LocationSource.gps,
+    this.testAddress,
     super.key,
   });
 
@@ -59,6 +61,8 @@ class LocationPickerScreen extends StatefulWidget {
   final double initialLongitude;
   final double? gpsAccuracyM;
   final DateTime capturedAt;
+  final LocationSource initialSource;
+  final String? testAddress;
 
   @override
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
@@ -88,7 +92,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   void initState() {
     super.initState();
     point = LatLng(widget.initialLatitude, widget.initialLongitude);
-    source = LocationSource.gps;
+    source = widget.initialSource;
     _loadBoundary();
   }
 
@@ -113,14 +117,16 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     setState(() {
       point = target;
       // A partir do primeiro ajuste, a precisão do GPS não vale mais.
-      source = LocationSource.manuallyAdjusted;
+      source = widget.initialSource.isTest
+          ? LocationSource.testAddress
+          : LocationSource.manuallyAdjusted;
     });
   }
 
   void _resetToGps() {
     setState(() {
       point = LatLng(widget.initialLatitude, widget.initialLongitude);
-      source = LocationSource.gps;
+      source = widget.initialSource;
     });
     mapController.move(point, mapController.camera.zoom);
   }
@@ -225,9 +231,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                   left: 12,
                   right: 12,
                   child: _Hint(
-                    text: source.isManual
-                        ? 'Ponto ajustado por você. Toque no mapa para mover de novo.'
-                        : 'Toque no mapa para corrigir o ponto, se ele não estiver onde o risco está.',
+                    text: source.isTest
+                        ? 'Modo de teste: ${widget.testAddress ?? 'endereço configurado'}. Toque no mapa para ajustar.'
+                        : source.isManual
+                            ? 'Ponto ajustado por você. Toque no mapa para mover de novo.'
+                            : 'Toque no mapa para corrigir o ponto, se ele não estiver onde o risco está.',
                   ),
                 ),
               ],
@@ -348,7 +356,9 @@ class _Summary extends StatelessWidget {
                   if (onResetToGps != null)
                     TextButton(
                       onPressed: onResetToGps,
-                      child: const Text('Voltar ao GPS'),
+                      child: Text(source.isTest
+                          ? 'Restaurar endereço'
+                          : 'Voltar ao GPS'),
                     ),
                 ],
               ),
@@ -359,12 +369,14 @@ class _Summary extends StatelessWidget {
                 style: const TextStyle(color: _muted, fontSize: 12),
               ),
               Text(
-                source.isManual
-                    // Sem inventar um novo raio para o ponto escolhido.
-                    ? 'Escolhido no mapa. A precisão do GPS não se aplica a este ponto.'
-                    : gpsAccuracyM == null
-                        ? 'Precisão não informada pelo aparelho.'
-                        : 'Precisão de ${gpsAccuracyM!.round()} m · capturado às $_clock',
+                source.isTest
+                    ? 'Endereço de demonstração; sem precisão de GPS.'
+                    : source.isManual
+                        // Sem inventar um novo raio para o ponto escolhido.
+                        ? 'Escolhido no mapa. A precisão do GPS não se aplica a este ponto.'
+                        : gpsAccuracyM == null
+                            ? 'Precisão não informada pelo aparelho.'
+                            : 'Precisão de ${gpsAccuracyM!.round()} m · capturado às $_clock',
                 style:
                     const TextStyle(color: _muted, fontSize: 11, height: 1.4),
               ),
