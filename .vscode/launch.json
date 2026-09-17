@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BluAlert: Chrome com Supabase",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "preLaunchTask": "BluAlert: conferir Supabase",
+      "toolArgs": ["--dart-define-from-file=.dart-defines.json"],
+      "env": {"PUB_CACHE": "${workspaceFolder}\\.pub-cache"}
+    },
+    {
+      "name": "BluAlert: Chrome sem backend",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "env": {"PUB_CACHE": "${workspaceFolder}\\.pub-cache"}
+    },
+    {
+      "name": "BluAlert: Chrome modo de teste",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "preLaunchTask": "BluAlert: conferir Supabase",
+      "toolArgs": ["--dart-define-from-file=.dart-defines.json", "--dart-define=TEST_LOCATION_ENABLED=true"],
+      "env": {"PUB_CACHE": "${workspaceFolder}\\.pub-cache"}
+    }
+  ]
+}

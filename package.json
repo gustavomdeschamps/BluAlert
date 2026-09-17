@@ -1,0 +1,13 @@
+{
+  "name": "blualert-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Servidor estatico local da build web do BluAlert. Nao consulta fontes oficiais nem recebe ocorrencias.",
+  "scripts": {
+    "start": "node server/app.js",
+    "test": "node --test server/app.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

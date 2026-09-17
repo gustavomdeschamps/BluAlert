@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "BluAlert: conferir Supabase",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\configure-supabase.ps1", "-CheckOnly"],
+      "problemMatcher": []
+    },
+    {
+      "label": "BluAlert: preparar dependências",
+      "type": "shell",
+      "command": "flutter pub get",
+      "options": {
+        "env": {
+          "PUB_CACHE": "${workspaceFolder}\\.pub-cache"
+        }
+      },
+      "problemMatcher": "$dart-build"
+    },
+    {
+      "label": "BluAlert: executar no Chrome",
+      "type": "shell",
+      "command": ".\\run-blualert.bat",
+      "options": {
+        "env": {
+          "PUB_CACHE": "${workspaceFolder}\\.pub-cache"
+        }
+      },
+      "problemMatcher": "$dart-build",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "BluAlert: validar tudo",
+      "type": "shell",
+      "command": "flutter analyze --no-pub; if ($LASTEXITCODE -eq 0) { flutter test --no-pub }",
+      "options": {
+        "env": {
+          "PUB_CACHE": "${workspaceFolder}\\.pub-cache"
+        }
+      },
+      "dependsOn": "BluAlert: preparar dependências",
+      "problemMatcher": "$dart-build"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+.scanner { margin: 20px 0; background: #071d33; color: #eef5f8; border: 1px solid #28465e; box-shadow: 0 12px 28px #071d3326; }
+.scanner-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 13px; border-bottom: 1px solid #28465e; }
+.scanner-head div { display: grid; gap: 3px; }
+.scanner-head span, .scanner-result span { font-size: 9px; letter-spacing: .14em; font-weight: 900; color: #f58a60; }
+.scanner-head strong { font-size: 12px; }
+.scanner-head i { width: 9px; height: 9px; border-radius: 50%; background: #f1a84b; box-shadow: 0 0 0 4px #f1a84b22; }
+.scanner-head i.ready { background: #43c68a; box-shadow: 0 0 0 4px #43c68a22; }
+.scan-frame { position: relative; min-height: 220px; display: grid; place-items: center; overflow: hidden; background: #031321; }
+.scan-frame img { display: block; width: 100%; max-height: 360px; object-fit: contain; }
+.media-state { padding: 42px 20px; color: #9fb2c0; text-align: center; }
+.scan-frame::after { content: ''; position: absolute; inset: 12px; border: 1px solid #62c4ff66; pointer-events: none; }
+.scan-line { position: absolute; left: 12px; right: 12px; height: 2px; background: #62c4ff; box-shadow: 0 0 14px #62c4ff; animation: scan 1.6s ease-in-out infinite alternate; }
+@keyframes scan { from { top: 14px; } to { top: calc(100% - 16px); } }
+.scanner-result { padding: 12px 13px; }
+.scanner-result p { margin: 5px 0 0; color: #c5d4de; font-size: 11px; line-height: 1.45; }
+.triage-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.triage-actions button { padding: 11px 6px; border: 1px solid #9aabb6; background: #fff; color: #173b67; font-weight: 900; cursor: pointer; }
+.triage-actions button:hover { border-color: #173b67; background: #eaf1f6; }
+.triage-actions .critical { border-color: #c62035; color: #a91629; background: #fff2f3; }
+@media (prefers-reduced-motion: reduce) { .scan-line { animation: none; top: 50%; } }
