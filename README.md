@@ -83,6 +83,12 @@ A publicação web usa GitHub Actions e GitHub Pages. O fluxo está em
 em `/BluAlert/privacy.html`. Em **Settings → Pages**, escolha **GitHub Actions**
 como origem da publicação.
 
+No Supabase hospedado, abra **Authentication → URL Configuration** e defina
+**Site URL** como `https://gustavomdeschamps.github.io/BluAlert/`. Esse é o
+destino padrão dos links de confirmação por e-mail quando o cadastro não envia
+um redirecionamento específico; mantenha URLs locais adicionais somente se
+precisar testar o aplicativo no computador.
+
 ```bash
 flutter build web --release --pwa-strategy=none --dart-define-from-file=.dart-defines.json
 npm start
