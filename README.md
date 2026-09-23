@@ -1,6 +1,6 @@
 # BluAlert
 
-Aplicativo móvel de alertas e orientação da Defesa Civil para Blumenau. O projeto prioriza decisões rápidas em situações de risco e mantém informações essenciais disponíveis mesmo sem internet, com uma experiência preparada para futura comunicação via LoRa.
+Protótipo escolar de orientação e registro de ocorrências em Blumenau. O BluAlert não é um aplicativo oficial da Defesa Civil. O projeto ainda não dispõe de uma equipe de atendimento para os registros enviados.
 
 > **VERSÃO PILOTO.** O canal digital está em teste e não substitui a central de
 > emergência. Nenhuma equipe é acionada automaticamente pelo aplicativo. Em
@@ -20,7 +20,7 @@ Aplicativo móvel de alertas e orientação da Defesa Civil para Blumenau. O pro
 - upload por URL assinada para Storage privado, com idempotência por UUID
   gerado no cliente — reenviar não duplica a ocorrência;
 - estados de envio distintos e honestos: *salvo no aparelho*, *aguardando
-  conexão*, *enviando mídia*, *aguardando confirmação*, *recebido pela central*
+  conexão*, *enviando mídia*, *aguardando confirmação*, *registrado no sistema*
   e *precisa da sua ação*. **Nenhum estado local é chamado de "enviado"**;
 - mapa real da região, mediante autorização explícita de localização;
 - leitura da situação publicada pelo AlertaBlu, sem reutilizar valores antigos
@@ -31,12 +31,14 @@ Aplicativo móvel de alertas e orientação da Defesa Civil para Blumenau. O pro
 
 ### Limites conhecidos
 
-- **Android é o destino real do piloto.** No navegador, a fila e as evidências
+- **Android é o destino previsto para uso em campo.** No navegador, a fila e as evidências
   ficam em memória: fechar a aba perde o que ainda não foi confirmado. A
   interface avisa isso na revisão do envio.
 - A promoção para `operator` e `supervisor` é manual, pelo SQL Editor.
-- O build de release ainda usa a chave de depuração; configure uma chave própria
-  antes de distribuir.
+- Para gerar Android de distribuição será necessária uma chave de assinatura
+  própria em `android/key.properties`; veja `android/key.properties.example`.
+- O piloto web aceita registros para teste, sem plantão ou resposta garantida.
+  Para pedir exclusão de dados, use o contato em `web/privacy.html`.
 
 ## Executar
 
@@ -74,6 +76,12 @@ depurador. Não abra esse link na aba interna do VS Code: o BluAlert é executad
 na janela do Chrome aberta automaticamente pelo comando.
 
 ### Versão web
+
+A publicação web usa GitHub Actions e GitHub Pages. O fluxo está em
+`.github/workflows/web-pages.yml`; a URL prevista é
+`https://gustavomdeschamps.github.io/BluAlert/`. O aviso de privacidade fica
+em `/BluAlert/privacy.html`. Em **Settings → Pages**, escolha **GitHub Actions**
+como origem da publicação.
 
 ```bash
 flutter build web --release --pwa-strategy=none --dart-define-from-file=.dart-defines.json
@@ -151,10 +159,10 @@ Roteiro manual mínimo antes de liberar uma versão:
 
 1. cadastrar, confirmar o e-mail e entrar; fechar e reabrir o aplicativo — deve
    entrar direto, sem pedir a senha;
-2. **ativar o modo avião**, registrar uma ocorrência com foto e enviar — precisa
+2. **no Android, ativar o modo avião**, registrar uma ocorrência com foto e enviar — precisa
    ficar em *aguardando conexão*, nunca em "enviado";
 3. desligar o modo avião — a ocorrência deve sair sozinha e só então exibir
-   *recebido pela central*, com protocolo;
+   *registrado no sistema*, com protocolo;
 4. repetir o envio da mesma ocorrência — não pode duplicar no painel;
 5. negar a permissão de localização — precisa aparecer instrução acionável, não
    uma tela travada;

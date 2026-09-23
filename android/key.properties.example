@@ -1,0 +1,4 @@
+storePassword=SUBSTITUIR_SENHA_DA_CHAVE
+keyPassword=SUBSTITUIR_SENHA_DA_CHAVE
+keyAlias=upload
+storeFile=C:\\CAMINHO\\PRIVADO\\upload-keystore.jks

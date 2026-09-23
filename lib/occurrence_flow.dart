@@ -564,7 +564,7 @@ class OccurrenceReviewSheet extends StatelessWidget {
                   style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 4),
               const Text(
-                'Estes dados vão para a central junto com as evidências.',
+                'Estes dados vão para o sistema junto com as evidências.',
                 style: TextStyle(color: _muted, fontSize: 12),
               ),
               const SizedBox(height: 18),
@@ -808,7 +808,7 @@ class OccurrenceStatusCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Protocolo da central',
+                        const Text('Protocolo do registro',
                             style: TextStyle(color: _muted, fontSize: 11)),
                         SelectableText(
                           occurrence.protocol!,
@@ -876,7 +876,7 @@ class OccurrenceStatusCard extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Descartar esta ocorrência?'),
         content: const Text(
-          'As fotos e a descrição serão apagadas deste aparelho e a central '
+          'As fotos e a descrição serão apagadas deste aparelho e o sistema '
           'não receberá o registro. Isto não pode ser desfeito.',
         ),
         actions: [

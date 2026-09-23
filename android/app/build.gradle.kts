@@ -1,8 +1,17 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val uploadKey = Properties()
+val uploadKeyFile = rootProject.file("key.properties")
+if (uploadKeyFile.exists()) {
+    FileInputStream(uploadKeyFile).use { uploadKey.load(it) }
 }
 
 android {
@@ -27,10 +36,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = uploadKey.getProperty("keyAlias")
+            keyPassword = uploadKey.getProperty("keyPassword")
+            storeFile = uploadKey.getProperty("storeFile")?.let { file(it) }
+            storePassword = uploadKey.getProperty("storePassword")
+        }
+    }
+
     buildTypes {
         release {
-            // A chave de publicação deve ser configurada antes de enviar o app à loja.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

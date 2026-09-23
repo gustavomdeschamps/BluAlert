@@ -515,8 +515,8 @@ class CivilDefenseHeader extends StatelessWidget {
                           ),
                         Text(
                           compact
-                              ? 'Informação oficial e localização real'
-                              : 'DEFESA CIVIL • INFORMAÇÃO PARA AGIR',
+                              ? 'Dados públicos e mapa local'
+                              : 'PROJETO ESCOLAR • INFORMAÇÃO PARA AGIR',
                           style: const TextStyle(
                             color: Color(0xFFBFD0DE),
                             fontSize: 9,

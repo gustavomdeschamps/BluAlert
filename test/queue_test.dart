@@ -152,7 +152,7 @@ void main() {
     });
 
     test('só o estado confirmado afirma recebimento', () {
-      expect(QueueStatus.receivedByCentral.label, 'Recebido pela central');
+      expect(QueueStatus.receivedByCentral.label, 'Registrado no sistema');
       expect(QueueStatus.receivedByCentral.isPending, isFalse);
     });
   });

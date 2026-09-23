@@ -42,21 +42,21 @@ enum QueueStatus {
         waitingConnection => 'Aguardando conexão',
         uploadingMedia => 'Enviando mídia',
         awaitingConfirmation => 'Aguardando confirmação',
-        receivedByCentral => 'Recebido pela central',
+        receivedByCentral => 'Registrado no sistema',
         actionRequired => 'Precisa da sua ação',
       };
 
   /// Explicação honesta do que já aconteceu de fato.
   String get description => switch (this) {
         savedOnDevice =>
-          'A ocorrência está guardada neste aparelho. Ainda não foi para a central.',
+          'A ocorrência está guardada neste aparelho. Ainda não foi registrada no sistema.',
         waitingConnection =>
           'Sem conexão no momento. O envio continua sozinho quando a internet voltar.',
-        uploadingMedia => 'Transferindo as evidências para a central.',
+        uploadingMedia => 'Transferindo as evidências para o sistema.',
         awaitingConfirmation =>
-          'As evidências foram transferidas. Aguardando a central confirmar o registro.',
+          'As evidências foram transferidas. Aguardando confirmação do registro.',
         receivedByCentral =>
-          'A central registrou a ocorrência e devolveu um protocolo.',
+          'O sistema registrou a ocorrência e gerou um protocolo. Isso não significa atendimento por uma equipe.',
         actionRequired =>
           'O envio automático parou. Veja o motivo e tente novamente.',
       };

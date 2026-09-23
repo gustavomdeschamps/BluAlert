@@ -57,7 +57,7 @@ function Login() {
     if (result.error) setError('Acesso não autorizado. Confira usuário e senha.');
   }
   return <main className="login-shell"><form className="login-card" onSubmit={submit}>
-    <div className="brand-mark" aria-hidden="true">BA</div><p className="eyebrow">DEFESA CIVIL • BLUMENAU</p>
+    <div className="brand-mark" aria-hidden="true">BA</div><p className="eyebrow">PROJETO ESCOLAR • BLUMENAU</p>
     <h1>Sala de Operações</h1><p className="subtle">Acesso restrito à equipe autorizada.</p>
     <label>E-mail<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
     <label>Senha<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
@@ -340,7 +340,32 @@ function Detail({item,onClose,onStatus,onPriority}:{item:QueueItem;onClose:()=>v
   </section>;
 }
 
-function App() { const [ready,setReady]=useState(false); const [signed,setSigned]=useState(false); useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSigned(!!data.session);setReady(true)}); const {data}=supabase.auth.onAuthStateChange((_e,s)=>setSigned(!!s)); return()=>data.subscription.unsubscribe();},[]); if(!ready)return <div className="boot">Abrindo sala de operações…</div>; return signed?<Operations/>:<Login/>; }
+function App() {
+  const [access, setAccess] = useState<'checking' | 'guest' | 'denied' | 'operator'>('checking');
+  useEffect(() => {
+    let active = true;
+    async function verifyAccess() {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (!active) return;
+      if (authError || !auth.user) { setAccess('guest'); return; }
+      const { data: profile, error: profileError } = await supabase.from('profiles')
+        .select('role').eq('id', auth.user.id).maybeSingle();
+      if (!active) return;
+      setAccess(!profileError && (profile?.role === 'operator' || profile?.role === 'supervisor') ? 'operator' : 'denied');
+    }
+    void verifyAccess();
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      // A consulta ao perfil ocorre fora do callback de Auth para não prender
+      // a renovação da sessão enquanto o cliente faz uma nova requisição.
+      setTimeout(() => { if (active) void verifyAccess(); }, 0);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
+  }, []);
+  if (access === 'checking') return <div className="boot">Conferindo acesso ao painel…</div>;
+  if (access === 'guest') return <Login />;
+  if (access === 'denied') return <main className="login-shell"><section className="login-card"><h1>Acesso restrito</h1><p>Esta conta não tem permissão de operador. Peça ao responsável pelo projeto para liberar seu perfil.</p><button onClick={() => supabase.auth.signOut()}>Sair</button></section></main>;
+  return <Operations />;
+}
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(<React.StrictMode><App /></React.StrictMode>);
 if (import.meta.hot) import.meta.hot.dispose(() => root.unmount());

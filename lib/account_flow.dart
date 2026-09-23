@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'address_search_service.dart';
 import 'backend_client.dart';
@@ -17,6 +18,12 @@ const _paper = Color(0xFFF3F6F8);
 const _ink = Color(0xFF102433);
 const _muted = Color(0xFF60717B);
 const _green = Color(0xFF14815A);
+final _privacyUrl = Uri.parse(
+    'https://gustavomdeschamps.github.io/BluAlert/privacy.html');
+
+Future<void> _openPrivacyPolicy() async {
+  await launchUrl(_privacyUrl, mode: LaunchMode.externalApplication);
+}
 
 class ResidentProfile {
   const ResidentProfile(
@@ -1081,9 +1088,13 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                     label: const Text('Criar cadastro'))),
             const SizedBox(height: 10),
             const Text(
-                'Seus dados ficam protegidos e são usados somente no atendimento das ocorrências que você enviar.',
+                'Projeto escolar em teste. O envio não aciona automaticamente a Defesa Civil. Leia como seus dados são usados antes de criar a conta.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: _muted, fontSize: 11, height: 1.4)),
+            const Center(
+                child: TextButton(
+                    onPressed: _openPrivacyPolicy,
+                    child: Text('Aviso de privacidade'))),
             const SizedBox(height: 8),
             Center(
                 child: TextButton(

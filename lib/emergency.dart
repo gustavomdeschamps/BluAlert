@@ -310,9 +310,9 @@ class PilotNotice extends StatelessWidget {
               ),
               const SizedBox(height: 7),
               const Text(
-                'Este canal está em teste e não substitui a central de '
-                'emergência. Nenhuma equipe é acionada automaticamente pelo '
-                'aplicativo.',
+                'Projeto escolar em teste. Este canal não substitui a central de '
+                'emergência e não é monitorado pela Defesa Civil. Nenhuma equipe '
+                'é acionada automaticamente pelo aplicativo.',
                 style: TextStyle(color: _pilotInk, fontSize: 12, height: 1.45),
               ),
               SizedBox(height: dense ? 10 : 12),

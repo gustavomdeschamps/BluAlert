@@ -49,6 +49,4 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
-    - assets/brand/blualert_mark.png
     - assets/brand/blualert_mark_v2.png
-    - assets/brand/defesa_civil_blumenau.png
