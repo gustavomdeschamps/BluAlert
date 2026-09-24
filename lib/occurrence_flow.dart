@@ -188,7 +188,12 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
         ),
       );
       if (!mounted) return;
-      final capturedAt = DateTime.now();
+      final capturedAt = found.timestamp;
+      if (DateTime.now().difference(capturedAt) > _maximumGpsAge) {
+        throw const _LocationProblem(
+          'O aparelho devolveu uma posição antiga. Atualize o GPS e tente novamente.',
+        );
+      }
       setState(() {
         confirmedLocation = null;
       });

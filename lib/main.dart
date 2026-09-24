@@ -728,6 +728,7 @@ class RealMapScreen extends StatefulWidget {
 }
 
 class _RealMapScreenState extends State<RealMapScreen> {
+  static const maximumPositionAge = Duration(minutes: 2);
   static const blumenauCenter = LatLng(
     BlumenauMapBounds.centerLatitude,
     BlumenauMapBounds.centerLongitude,
@@ -816,6 +817,9 @@ class _RealMapScreenState extends State<RealMapScreen> {
         ),
       );
       if (!mounted) return;
+      if (DateTime.now().difference(position.timestamp) > maximumPositionAge) {
+        throw TimeoutException('Posição antiga');
+      }
       setState(() {
         currentPosition = position;
         followingUser = true;
@@ -830,6 +834,14 @@ class _RealMapScreenState extends State<RealMapScreen> {
         ),
       ).listen((nextPosition) {
         if (!mounted) return;
+        if (DateTime.now().difference(nextPosition.timestamp) >
+            maximumPositionAge) {
+          setState(() {
+            currentPosition = null;
+            locationMessage = 'O aparelho enviou uma posição antiga. Toque para atualizar.';
+          });
+          return;
+        }
         setState(() {
           currentPosition = nextPosition;
           locationMessage = null;
