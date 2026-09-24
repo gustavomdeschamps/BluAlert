@@ -69,12 +69,7 @@ class OccurrenceScreen extends StatefulWidget {
 }
 
 class _OccurrenceScreenState extends State<OccurrenceScreen> {
-  static const _testLocationEnabled =
-      bool.fromEnvironment('TEST_LOCATION_ENABLED', defaultValue: false);
-  static const _testAddress =
-      'R. São Paulo, 1147 - Bloco A - Victor Konder, Blumenau - SC, 89012-001';
-  static const _testLatitude = -26.907254713;
-  static const _testLongitude = -49.07648278;
+  static const _maximumGpsAge = Duration(minutes: 2);
   final picker = ImagePicker();
   final description = TextEditingController();
   final evidence = <QueuedEvidence>[];
@@ -82,9 +77,6 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
 
   late String occurrenceId;
   String category = _categories.first.$1;
-  Position? position;
-  DateTime? positionCapturedAt;
-
   /// Coordenada confirmada pela pessoa no mapa. Enquanto for nula, o ponto
   /// ainda não foi conferido e o envio não é liberado.
   ConfirmedLocation? confirmedLocation;
@@ -100,17 +92,6 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   void initState() {
     super.initState();
     occurrenceId = backend.uuid();
-    if (_testLocationEnabled) {
-      final capturedAt = DateTime.now();
-      positionCapturedAt = capturedAt;
-      confirmedLocation = ConfirmedLocation(
-        latitude: _testLatitude,
-        longitude: _testLongitude,
-        accuracyM: null,
-        capturedAt: capturedAt,
-        source: LocationSource.testAddress,
-      );
-    }
   }
 
   @override
@@ -209,8 +190,6 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
       if (!mounted) return;
       final capturedAt = DateTime.now();
       setState(() {
-        position = found;
-        positionCapturedAt = capturedAt;
         confirmedLocation = null;
       });
       // Quem está no local é a única pessoa capaz de dizer se o ponto do GPS
@@ -229,31 +208,12 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     }
   }
 
-  Future<void> _useTestLocation() async {
-    final capturedAt = DateTime.now();
-    setState(() {
-      position = null;
-      positionCapturedAt = capturedAt;
-      confirmedLocation = null;
-      error = null;
-    });
-    await _confirmOnMap(
-      _testLatitude,
-      _testLongitude,
-      null,
-      capturedAt,
-      initialSource: LocationSource.testAddress,
-      testAddress: _testAddress,
-    );
-  }
-
   Future<void> _confirmOnMap(
     double latitude,
     double longitude,
     double? accuracy,
     DateTime capturedAt, {
     LocationSource initialSource = LocationSource.gps,
-    String? testAddress,
   }) async {
     final result = await Navigator.of(context).push<ConfirmedLocation>(
       MaterialPageRoute(
@@ -263,7 +223,6 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
           gpsAccuracyM: accuracy,
           capturedAt: capturedAt,
           initialSource: initialSource,
-          testAddress: testAddress,
         ),
       ),
     );
@@ -277,15 +236,13 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   /// Reabre o mapa para revisar o ponto já confirmado.
   Future<void> _reviewLocation() async {
     final current = confirmedLocation;
-    final captured = positionCapturedAt;
-    if (current == null || captured == null) return;
+    if (current == null) return;
     await _confirmOnMap(
       current.latitude,
       current.longitude,
       current.source.isManual ? null : current.accuracyM,
-      captured,
+      current.capturedAt,
       initialSource: current.source,
-      testAddress: current.source.isTest ? _testAddress : null,
     );
   }
 
@@ -298,6 +255,11 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
     }
     if (confirmedLocation == null) {
       return 'Confirme a localização da ocorrência no mapa.';
+    }
+    final location = confirmedLocation!;
+    if (location.source == LocationSource.gps &&
+        DateTime.now().difference(location.capturedAt) > _maximumGpsAge) {
+      return 'A localização já tem mais de 2 minutos. Atualize o GPS e confirme o ponto novamente.';
     }
     return null;
   }
@@ -324,6 +286,11 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   }
 
   Future<void> _submit() async {
+    final problem = _validate();
+    if (problem != null) {
+      setState(() => error = problem);
+      return;
+    }
     setState(() {
       submitting = true;
       error = null;
@@ -357,22 +324,11 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
   }
 
   void _startAnother() {
-    final capturedAt = DateTime.now();
     setState(() {
       occurrenceId = backend.uuid();
       evidence.clear();
       description.clear();
-      position = null;
-      positionCapturedAt = _testLocationEnabled ? capturedAt : null;
-      confirmedLocation = _testLocationEnabled
-          ? ConfirmedLocation(
-              latitude: _testLatitude,
-              longitude: _testLongitude,
-              accuracyM: null,
-              capturedAt: capturedAt,
-              source: LocationSource.testAddress,
-            )
-          : null;
+      confirmedLocation = null;
       category = _categories.first.$1;
       trackingId = null;
       error = null;
@@ -471,26 +427,6 @@ class _OccurrenceScreenState extends State<OccurrenceScreen> {
                   onCapture: _locate,
                   onReview: confirmedLocation == null ? null : _reviewLocation,
                 ),
-                if (_testLocationEnabled) ...[
-                  const SizedBox(height: 10),
-                  Semantics(
-                    button: true,
-                    label: 'Usar o endereço fixo de teste do SENAI Blumenau',
-                    child: OutlinedButton.icon(
-                      onPressed: locating ? null : _useTestLocation,
-                      icon: const Icon(Icons.science_outlined),
-                      label: const Text('Usar endereço de teste'),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'MODO DE TESTE · Rua São Paulo, 1147, Victor Konder. O painel identificará este registro como teste.',
-                    style: TextStyle(
-                        color: _waiting,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700),
-                  ),
-                ],
                 if (error != null) ...[
                   const SizedBox(height: 14),
                   ErrorNotice(text: error!),

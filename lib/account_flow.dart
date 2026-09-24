@@ -8,7 +8,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'address_search_service.dart';
 import 'backend_client.dart';
 import 'emergency.dart';
 
@@ -92,31 +91,6 @@ class ProfileVault {
     }
   }
 
-  Future<String?> readPendingEmail() async {
-    if (kIsWeb) {
-      return (await SharedPreferences.getInstance())
-          .getString(_pendingEmailKey);
-    }
-    return await _storage.read(key: _pendingEmailKey);
-  }
-
-  Future<void> savePendingEmail(String email) async {
-    if (kIsWeb) {
-      await (await SharedPreferences.getInstance())
-          .setString(_pendingEmailKey, email);
-    } else {
-      await _storage.write(key: _pendingEmailKey, value: email);
-    }
-  }
-
-  Future<void> clearPendingEmail() async {
-    if (kIsWeb) {
-      await (await SharedPreferences.getInstance()).remove(_pendingEmailKey);
-    } else {
-      await _storage.delete(key: _pendingEmailKey);
-    }
-  }
-
   Future<void> clear() async {
     if (kIsWeb) {
       final p = await SharedPreferences.getInstance();
@@ -146,7 +120,6 @@ class _AccountGateState extends State<AccountGate> {
   final backend = BackendClient();
   _GateState state = _GateState.loading;
   ResidentProfile? profile;
-  String? pendingEmail;
   @override
   void initState() {
     super.initState();
@@ -156,7 +129,6 @@ class _AccountGateState extends State<AccountGate> {
   Future<void> _restore() async {
     try {
       profile = await vault.readProfile();
-      pendingEmail = await vault.readPendingEmail();
     } catch (_) {
       profile = null;
     }
@@ -174,11 +146,9 @@ class _AccountGateState extends State<AccountGate> {
       longitude: resident.longitude,
     );
     await vault.save(resident);
-    await vault.savePendingEmail(resident.email);
     if (mounted) {
       setState(() {
         profile = resident;
-        pendingEmail = resident.email;
         state = _GateState.account;
       });
     }
@@ -193,7 +163,6 @@ class _AccountGateState extends State<AccountGate> {
     if (mounted) {
       setState(() {
         profile = null;
-        pendingEmail = null;
         state = _GateState.account;
       });
     }
@@ -215,18 +184,15 @@ class _AccountGateState extends State<AccountGate> {
         _GateState.account => AccountAccessScreen(
             key: const ValueKey('account'),
             profile: profile,
-            pendingConfirmationEmail: pendingEmail,
             vault: vault,
             onRegistered: _register,
             onUnlocked: (restoredProfile) async {
               if (restoredProfile != null) {
                 await vault.save(restoredProfile);
               }
-              await vault.clearPendingEmail();
               if (mounted) {
                 setState(() {
                   profile = restoredProfile ?? profile;
-                  pendingEmail = null;
                   state = _GateState.unlocked;
                 });
               }
@@ -524,14 +490,12 @@ class LaunchRiverPainter extends CustomPainter {
 class AccountAccessScreen extends StatefulWidget {
   const AccountAccessScreen(
       {required this.profile,
-      this.pendingConfirmationEmail,
       required this.vault,
       required this.onRegistered,
       required this.onUnlocked,
       required this.onReset,
       super.key});
   final ResidentProfile? profile;
-  final String? pendingConfirmationEmail;
   final ProfileVault vault;
   final Future<void> Function(ResidentProfile, String) onRegistered;
   final Future<void> Function(ResidentProfile?) onUnlocked;
@@ -548,15 +512,10 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
   final email = TextEditingController();
   final password = TextEditingController();
   final phone = TextEditingController();
-  final street = TextEditingController();
-  final number = TextEditingController();
-  final addressSearch = AddressSearchService();
+  final referenceAddress = TextEditingController();
   late final AnimationController shakeController;
-  Timer? addressDebounce;
   Timer? resendTimer;
-  AddressSuggestion? selectedAddress;
-  List<AddressSuggestion> addressSuggestions = const [];
-  bool searchingAddress = false, saving = false, loginMode = false;
+  bool saving = false, loginMode = false;
   bool awaitingConfirmation = false;
   int resendSeconds = 0;
   String pendingPassword = '';
@@ -564,18 +523,11 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
   @override
   void initState() {
     super.initState();
-    awaitingConfirmation = widget.pendingConfirmationEmail != null;
-    // Primeiro uso: cadastro. Depois que um cadastro foi salvo neste aparelho:
-    // login. Uma confirmação pendente continua tendo precedência sobre ambos.
-    loginMode = !awaitingConfirmation && widget.profile != null;
-    email.text = widget.pendingConfirmationEmail ?? widget.profile?.email ?? '';
+    // Uma nova visita sempre começa com a entrada limpa. A confirmação só
+    // aparece imediatamente depois de um cadastro nesta sessão.
+    loginMode = widget.profile != null;
     shakeController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 380));
-    if (awaitingConfirmation) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _startResendCountdown();
-      });
-    }
   }
 
   @override
@@ -584,58 +536,14 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
     email.dispose();
     password.dispose();
     phone.dispose();
-    street.dispose();
-    number.dispose();
-    addressDebounce?.cancel();
+    referenceAddress.dispose();
     resendTimer?.cancel();
     shakeController.dispose();
     super.dispose();
   }
 
-  void searchAddress(String value) {
-    addressDebounce?.cancel();
-    selectedAddress = null;
-    if (value.trim().length < 3) {
-      setState(() => addressSuggestions = const []);
-      return;
-    }
-    addressDebounce = Timer(const Duration(milliseconds: 650), () async {
-      if (!mounted) return;
-      setState(() => searchingAddress = true);
-      try {
-        final results = await addressSearch.searchStreets(value);
-        if (mounted && street.text.trim() == value.trim()) {
-          setState(() => addressSuggestions = results);
-        }
-      } catch (_) {
-        if (mounted) {
-          setState(() {
-            addressSuggestions = const [];
-            message = 'A busca de ruas está indisponível. Tente novamente.';
-          });
-        }
-      } finally {
-        if (mounted) setState(() => searchingAddress = false);
-      }
-    });
-  }
-
-  void selectAddress(AddressSuggestion suggestion) {
-    setState(() {
-      selectedAddress = suggestion;
-      street.text = suggestion.street;
-      addressSuggestions = const [];
-      message = null;
-    });
-    FocusScope.of(context).nextFocus();
-  }
-
   Future<void> createAccount() async {
     if (!formKey.currentState!.validate()) return;
-    if (selectedAddress == null) {
-      setState(() => message = 'Selecione uma rua nas sugestões da busca.');
-      return;
-    }
     setState(() => saving = true);
     try {
       await widget.onRegistered(
@@ -643,10 +551,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
               email: email.text.trim().toLowerCase(),
               fullName: fullName.text.trim(),
               phone: phone.text.trim(),
-              referenceAddress:
-                  '${selectedAddress!.street}, ${number.text.trim()}${selectedAddress!.neighborhood.isEmpty ? '' : ' - ${selectedAddress!.neighborhood}'}, Blumenau - SC',
-              latitude: selectedAddress!.latitude,
-              longitude: selectedAddress!.longitude),
+              referenceAddress: referenceAddress.text.trim()),
           password.text);
     } catch (error) {
       if (!mounted) return;
@@ -759,22 +664,6 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
       }
     }
     await shakeController.forward(from: 0);
-  }
-
-  bool get emailDiffersFromSavedProfile {
-    final saved = widget.profile?.email.trim().toLowerCase();
-    final typed = email.text.trim().toLowerCase();
-    return saved != null &&
-        saved.isNotEmpty &&
-        typed.isNotEmpty &&
-        saved != typed;
-  }
-
-  void restoreSavedEmail() {
-    setState(() {
-      email.text = widget.profile!.email;
-      message = null;
-    });
   }
 
   @override
@@ -907,11 +796,9 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
 
   Widget _buildLogin() =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(
-            widget.profile == null
-                ? 'Entre no BluAlert'
-                : 'Olá, ${widget.profile!.firstName}.',
-            style: const TextStyle(
+        const Text(
+            'Entre no BluAlert',
+            style: TextStyle(
                 color: _ink,
                 fontSize: 28,
                 height: 1.05,
@@ -928,15 +815,6 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
           keyboardType: TextInputType.emailAddress,
           onChanged: (_) => setState(() => message = null),
         ),
-        if (emailDiffersFromSavedProfile)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: restoreSavedEmail,
-              icon: const Icon(Icons.history_rounded, size: 18),
-              label: Text('Usar o e-mail salvo: ${widget.profile!.email}'),
-            ),
-          ),
         const SizedBox(height: 12),
         AppField(
           controller: password,
@@ -989,7 +867,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                     fontWeight: FontWeight.w900,
                     letterSpacing: -.8)),
             const SizedBox(height: 7),
-            const Text('Seus dados essenciais para pedir ajuda com rapidez.',
+            const Text('Crie sua conta. O local de cada ocorrência será obtido pelo GPS quando você a registrar.',
                 style: TextStyle(color: _muted, height: 1.4)),
             const SizedBox(height: 22),
             AppField(
@@ -1036,39 +914,12 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                 validator: validatePhone),
             const SizedBox(height: 12),
             AppField(
-                controller: street,
-                label: 'Rua',
-                hint: 'Comece a digitar o nome da rua',
+                controller: referenceAddress,
+                label: 'Endereço de referência (opcional)',
+                hint: 'Ex.: bairro e rua onde você mora',
                 icon: Icons.location_on_outlined,
                 textCapitalization: TextCapitalization.words,
-                onChanged: searchAddress,
-                suffix: searchingAddress
-                    ? const Padding(
-                        padding: EdgeInsets.all(13),
-                        child: SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2)))
-                    : selectedAddress != null
-                        ? const Icon(Icons.check_circle_rounded, color: _green)
-                        : null,
-                validator: (_) => selectedAddress == null
-                    ? 'Escolha uma rua na lista de sugestões'
-                    : null),
-            if (addressSuggestions.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              AddressSuggestionList(
-                  suggestions: addressSuggestions, onSelected: selectAddress),
-            ],
-            const SizedBox(height: 12),
-            AppField(
-                controller: number,
-                label: 'Número',
-                hint: 'Ex.: 30 ou S/N',
-                icon: Icons.pin_drop_outlined,
-                textInputAction: TextInputAction.done,
-                validator: (value) => (value ?? '').trim().isEmpty
-                    ? 'Informe o número ou S/N'
-                    : null),
+                textInputAction: TextInputAction.done),
             if (message != null) ...[
               const SizedBox(height: 12),
               StatusMessage(text: message!)
@@ -1165,43 +1016,6 @@ class AccountRecoveryScreen extends StatelessWidget {
           ),
         ),
       );
-}
-
-class AddressSuggestionList extends StatelessWidget {
-  const AddressSuggestionList(
-      {required this.suggestions, required this.onSelected, super.key});
-
-  final List<AddressSuggestion> suggestions;
-  final ValueChanged<AddressSuggestion> onSelected;
-
-  @override
-  Widget build(BuildContext context) => Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFD4DDE3))),
-      child: Column(
-          children: suggestions.indexed.map((entry) {
-        final suggestion = entry.$2;
-        return Column(children: [
-          if (entry.$1 > 0)
-            const Divider(height: 1, indent: 48, color: Color(0xFFE3E9ED)),
-          ListTile(
-              dense: true,
-              minVerticalPadding: 10,
-              leading: const Icon(Icons.signpost_outlined, color: _orange),
-              title: Text(suggestion.street,
-                  style: const TextStyle(
-                      color: _ink, fontWeight: FontWeight.w800)),
-              subtitle: suggestion.subtitle.isEmpty
-                  ? null
-                  : Text(suggestion.subtitle,
-                      style: const TextStyle(color: _muted, fontSize: 11)),
-              trailing: const Icon(Icons.chevron_right_rounded, color: _muted),
-              onTap: () => onSelected(suggestion)),
-        ]);
-      }).toList()));
 }
 
 class StatusMessage extends StatelessWidget {

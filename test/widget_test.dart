@@ -67,14 +67,19 @@ void main() {
     expect(completed, isTrue);
   });
 
-  testWidgets('cadastro reúne identificação, telefone e localização',
+  testWidgets('cadastro não exige endereço ou GPS para criar conta',
       (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ResidentProfile? registered;
     await tester.pumpWidget(
       MaterialApp(
         home: AccountAccessScreen(
           profile: null,
           vault: const ProfileVault(),
-          onRegistered: (_, __) async {},
+          onRegistered: (profile, _) async => registered = profile,
           onUnlocked: (_) async {},
           onReset: () async {},
         ),
@@ -86,11 +91,24 @@ void main() {
     expect(find.text('E-mail de acesso'), findsOneWidget);
     expect(find.text('Senha da conta'), findsOneWidget);
     expect(find.text('Telefone para contato'), findsOneWidget);
-    expect(find.text('Rua'), findsOneWidget);
-    expect(find.text('Número'), findsOneWidget);
+    expect(find.text('Endereço de referência (opcional)'), findsOneWidget);
+    expect(find.text('Rua'), findsNothing);
+    expect(find.text('Número'), findsNothing);
     expect(find.text('Usar minha localização atual'), findsNothing);
     expect(find.textContaining('PIN'), findsNothing);
     expect(find.text('Nome do contato'), findsNothing);
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'Maria Silva');
+    await tester.enterText(find.byType(TextFormField).at(1), 'maria@example.com');
+    await tester.enterText(find.byType(TextFormField).at(2), 'senha-segura-123');
+    await tester.enterText(find.byType(TextFormField).at(3), '47999999999');
+    await tester.tap(find.text('Criar cadastro'));
+    await tester.pump();
+    expect(registered?.email, 'maria@example.com');
+    expect(registered?.referenceAddress, isEmpty);
+    expect(registered?.latitude, isNull);
+    expect(registered?.longitude, isNull);
+    expect(find.text('Confirme seu e-mail'), findsOneWidget);
   });
 
   testWidgets('perfil já salvo começa pela tela de login', (tester) async {
@@ -112,12 +130,15 @@ void main() {
       ),
     );
 
-    expect(find.text('Olá, Morador.'), findsOneWidget);
     expect(find.text('Entrar no BluAlert'), findsOneWidget);
     expect(find.text('Nome completo'), findsNothing);
+    expect(
+      tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text,
+      isEmpty,
+    );
   });
 
-  testWidgets('login avisa quando o e-mail difere do cadastro salvo',
+  testWidgets('login não revela o e-mail do cadastro salvo',
       (tester) async {
     const profile = ResidentProfile(
       email: 'gustavodeschamps33@gmail.com',
@@ -137,46 +158,14 @@ void main() {
       ),
     );
 
-    await tester.enterText(
-      find.byType(TextFormField).first,
-      'gustavodeschamps@gmail.com',
-    );
-    await tester.pump();
-    expect(
-      find.text('Usar o e-mail salvo: gustavodeschamps33@gmail.com'),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.textContaining('Usar o e-mail salvo'));
-    await tester.pump();
+    expect(find.textContaining('gustavodeschamps33@gmail.com'), findsNothing);
     expect(
       tester
           .widget<TextFormField>(find.byType(TextFormField).first)
           .controller!
           .text,
-      'gustavodeschamps33@gmail.com',
+      isEmpty,
     );
-  });
-
-  testWidgets('cadastro pendente abre a tela de confirmação', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: AccountAccessScreen(
-          profile: null,
-          pendingConfirmationEmail: 'morador@exemplo.com',
-          vault: const ProfileVault(),
-          onRegistered: (_, __) async {},
-          onUnlocked: (_) async {},
-          onReset: () async {},
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('Confirme seu e-mail'), findsOneWidget);
-    expect(find.text('morador@exemplo.com'), findsOneWidget);
-    expect(find.text('Já confirmei meu e-mail'), findsOneWidget);
-    expect(find.textContaining('Reenviar em'), findsOneWidget);
   });
 
   testWidgets('ocorrência exige evidência, descrição e localização',
@@ -207,6 +196,7 @@ void main() {
     // O ponto do GPS precisa passar por confirmação no mapa antes do envio:
     // um alfinete errado manda a equipe para a rua errada.
     expect(find.text('Capturar e confirmar no mapa'), findsOneWidget);
+    expect(find.text('Usar endereço de teste'), findsNothing);
     expect(
       find.textContaining('confere o ponto no mapa'),
       findsOneWidget,

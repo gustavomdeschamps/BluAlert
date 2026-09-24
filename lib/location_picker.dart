@@ -43,9 +43,8 @@ class ConfirmedLocation {
 /// equipe para a rua errada, e quem está no local é a única pessoa capaz de
 /// corrigir isso.
 ///
-/// O mapa é preso ao município: se o ponto cair fora de Blumenau, a tela avisa
-/// em vez de aceitar em silêncio uma ocorrência que a Defesa Civil municipal
-/// não pode atender.
+/// Se o ponto cair fora de Blumenau, a tela mostra a posição real e avisa
+/// que a ocorrência está fora da área atendida pelo projeto municipal.
 class LocationPickerScreen extends StatefulWidget {
   const LocationPickerScreen({
     required this.initialLatitude,
@@ -53,7 +52,6 @@ class LocationPickerScreen extends StatefulWidget {
     required this.gpsAccuracyM,
     required this.capturedAt,
     this.initialSource = LocationSource.gps,
-    this.testAddress,
     super.key,
   });
 
@@ -62,7 +60,6 @@ class LocationPickerScreen extends StatefulWidget {
   final double? gpsAccuracyM;
   final DateTime capturedAt;
   final LocationSource initialSource;
-  final String? testAddress;
 
   @override
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
@@ -76,17 +73,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   late LocationSource source;
 
   List<List<LatLng>> boundaryRings = const [];
-
-  static final _bounds = LatLngBounds(
-    const LatLng(
-      BlumenauMapBounds.southLatitude,
-      BlumenauMapBounds.westLongitude,
-    ),
-    const LatLng(
-      BlumenauMapBounds.northLatitude,
-      BlumenauMapBounds.eastLongitude,
-    ),
-  );
 
   @override
   void initState() {
@@ -117,9 +103,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     setState(() {
       point = target;
       // A partir do primeiro ajuste, a precisão do GPS não vale mais.
-      source = widget.initialSource.isTest
-          ? LocationSource.testAddress
-          : LocationSource.manuallyAdjusted;
+      source = LocationSource.manuallyAdjusted;
     });
   }
 
@@ -163,7 +147,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     initialZoom: 17,
                     minZoom: BlumenauMapBounds.minimumZoom,
                     maxZoom: BlumenauMapBounds.maximumZoom,
-                    cameraConstraint: CameraConstraint.contain(bounds: _bounds),
                     interactionOptions: const InteractionOptions(
                       flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                     ),
@@ -231,9 +214,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                   left: 12,
                   right: 12,
                   child: _Hint(
-                    text: source.isTest
-                        ? 'Modo de teste: ${widget.testAddress ?? 'endereço configurado'}. Toque no mapa para ajustar.'
-                        : source.isManual
+                    text: source.isManual
                             ? 'Ponto ajustado por você. Toque no mapa para mover de novo.'
                             : 'Toque no mapa para corrigir o ponto, se ele não estiver onde o risco está.',
                   ),
@@ -248,7 +229,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             capturedAt: widget.capturedAt,
             outsideMunicipality: _outsideMunicipality,
             lowAccuracy: _lowAccuracy,
-            onResetToGps: source.isManual ? _resetToGps : null,
+            onResetToGps: source.isManual &&
+                    widget.initialSource == LocationSource.gps
+                ? _resetToGps
+                : null,
             onConfirm: _outsideMunicipality
                 ? null
                 : () => Navigator.pop(
@@ -356,9 +340,7 @@ class _Summary extends StatelessWidget {
                   if (onResetToGps != null)
                     TextButton(
                       onPressed: onResetToGps,
-                      child: Text(source.isTest
-                          ? 'Restaurar endereço'
-                          : 'Voltar ao GPS'),
+                      child: const Text('Voltar ao GPS'),
                     ),
                 ],
               ),
@@ -369,9 +351,7 @@ class _Summary extends StatelessWidget {
                 style: const TextStyle(color: _muted, fontSize: 12),
               ),
               Text(
-                source.isTest
-                    ? 'Endereço de demonstração; sem precisão de GPS.'
-                    : source.isManual
+                source.isManual
                         // Sem inventar um novo raio para o ponto escolhido.
                         ? 'Escolhido no mapa. A precisão do GPS não se aplica a este ponto.'
                         : gpsAccuracyM == null

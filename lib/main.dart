@@ -300,7 +300,9 @@ class _AppShellState extends State<AppShell> {
                 label: 'Referência',
                 value: widget.profile.hasGpsReference
                     ? 'Ponto GPS salvo no aparelho'
-                    : widget.profile.referenceAddress,
+                    : widget.profile.referenceAddress.isEmpty
+                        ? 'Não informado'
+                        : widget.profile.referenceAddress,
               ),
               const SizedBox(height: 12),
               if (queue != null)
@@ -726,26 +728,9 @@ class RealMapScreen extends StatefulWidget {
 }
 
 class _RealMapScreenState extends State<RealMapScreen> {
-  static const testLocationEnabled =
-      bool.fromEnvironment('TEST_LOCATION_ENABLED', defaultValue: false);
-  static const testPoint = LatLng(-26.907254713, -49.07648278);
   static const blumenauCenter = LatLng(
     BlumenauMapBounds.centerLatitude,
     BlumenauMapBounds.centerLongitude,
-  );
-
-  /// Retângulo que prende a navegação ao município. Sem isto a pessoa consegue
-  /// afastar até o mapa-múndi, o que não serve a nada num aplicativo municipal
-  /// e ainda consome tiles à toa.
-  static final blumenauBounds = LatLngBounds(
-    const LatLng(
-      BlumenauMapBounds.southLatitude,
-      BlumenauMapBounds.westLongitude,
-    ),
-    const LatLng(
-      BlumenauMapBounds.northLatitude,
-      BlumenauMapBounds.eastLongitude,
-    ),
   );
 
   final mapController = MapController();
@@ -754,7 +739,7 @@ class _RealMapScreenState extends State<RealMapScreen> {
   Position? currentPosition;
   LocationPermission? permission;
   bool locating = false;
-  bool fixedTestLocation = false;
+  bool followingUser = true;
   String? locationMessage;
   StreamSubscription<Position>? positionSubscription;
 
@@ -766,14 +751,7 @@ class _RealMapScreenState extends State<RealMapScreen> {
   @override
   void initState() {
     super.initState();
-    if (testLocationEnabled) {
-      fixedTestLocation = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        mapController.move(testPoint, 17);
-      });
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => locateUser());
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => locateUser());
     _loadBoundary();
   }
 
@@ -798,20 +776,18 @@ class _RealMapScreenState extends State<RealMapScreen> {
   }
 
   Future<void> locateUser() async {
-    if (testLocationEnabled) {
-      setState(() {
-        fixedTestLocation = true;
-        locationMessage = null;
-      });
-      mapController.move(testPoint, 17);
-      return;
-    }
+    if (!mounted) return;
+    await positionSubscription?.cancel();
+    positionSubscription = null;
+    if (!mounted) return;
     setState(() {
       locating = true;
       locationMessage = null;
+      currentPosition = null;
     });
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!mounted) return;
         setState(() {
           locationMessage =
               'Ative a localização do aparelho para encontrar sua posição.';
@@ -824,6 +800,7 @@ class _RealMapScreenState extends State<RealMapScreen> {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
         setState(() {
           locationMessage = permission == LocationPermission.deniedForever
               ? 'A localização foi bloqueada. Libere a permissão nas configurações.'
@@ -839,7 +816,10 @@ class _RealMapScreenState extends State<RealMapScreen> {
         ),
       );
       if (!mounted) return;
-      setState(() => currentPosition = position);
+      setState(() {
+        currentPosition = position;
+        followingUser = true;
+      });
       mapController.move(LatLng(position.latitude, position.longitude), 16);
 
       await positionSubscription?.cancel();
@@ -849,14 +829,34 @@ class _RealMapScreenState extends State<RealMapScreen> {
           distanceFilter: 15,
         ),
       ).listen((nextPosition) {
-        if (mounted) setState(() => currentPosition = nextPosition);
+        if (!mounted) return;
+        setState(() {
+          currentPosition = nextPosition;
+          locationMessage = null;
+        });
+        if (followingUser) {
+          mapController.move(
+            LatLng(nextPosition.latitude, nextPosition.longitude),
+            mapController.camera.zoom,
+          );
+        }
+      }, onError: (_) {
+        if (!mounted) return;
+        setState(() {
+          currentPosition = null;
+          locationMessage = 'A localização ao vivo parou. Toque para tentar novamente.';
+        });
       });
     } on TimeoutException {
-      setState(() => locationMessage =
-          'O GPS demorou para responder. Tente novamente em área aberta.');
+      if (mounted) {
+        setState(() => locationMessage =
+            'O GPS demorou para responder. Tente novamente em área aberta.');
+      }
     } catch (_) {
-      setState(() =>
-          locationMessage = 'Não foi possível obter sua localização agora.');
+      if (mounted) {
+        setState(() => locationMessage =
+            'Não foi possível obter sua localização agora.');
+      }
     } finally {
       if (mounted) setState(() => locating = false);
     }
@@ -864,11 +864,9 @@ class _RealMapScreenState extends State<RealMapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userPoint = fixedTestLocation
-        ? testPoint
-        : currentPosition == null
-            ? null
-            : LatLng(currentPosition!.latitude, currentPosition!.longitude);
+    final userPoint = currentPosition == null
+        ? null
+        : LatLng(currentPosition!.latitude, currentPosition!.longitude);
     return Column(
       children: [
         const CivilDefenseHeader(compact: true),
@@ -877,16 +875,13 @@ class _RealMapScreenState extends State<RealMapScreen> {
             children: [
               FlutterMap(
                 mapController: mapController,
-                options: MapOptions(
+                options: const MapOptions(
                   initialCenter: blumenauCenter,
                   initialZoom: BlumenauMapBounds.initialZoom,
-                  // Zoom mínimo mantém Blumenau em contexto; o máximo permite
-                  // identificar uma residência ou o ponto de uma ocorrência.
+                  // O mapa começa em Blumenau e depois acompanha a posição real.
                   minZoom: BlumenauMapBounds.minimumZoom,
                   maxZoom: BlumenauMapBounds.maximumZoom,
-                  cameraConstraint:
-                      CameraConstraint.contain(bounds: blumenauBounds),
-                  interactionOptions: const InteractionOptions(
+                  interactionOptions: InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
                 ),
@@ -960,7 +955,6 @@ class _RealMapScreenState extends State<RealMapScreen> {
                 right: 14,
                 child: MapStatusPanel(
                   position: currentPosition,
-                  fixedTestLocation: fixedTestLocation,
                   locating: locating,
                   message: locationMessage,
                   onRetry: locateUser,
@@ -980,6 +974,26 @@ class _RealMapScreenState extends State<RealMapScreen> {
                         mapController.camera.zoom + 1,
                       ),
                       child: const Icon(Icons.add_rounded),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'follow',
+                      tooltip: followingUser
+                          ? 'Pausar acompanhamento do mapa'
+                          : 'Acompanhar minha posição',
+                      backgroundColor: followingUser ? navy : Colors.white,
+                      foregroundColor: followingUser ? Colors.white : navy,
+                      onPressed: () {
+                        setState(() => followingUser = !followingUser);
+                        if (followingUser && currentPosition != null) {
+                          mapController.move(
+                            LatLng(currentPosition!.latitude,
+                                currentPosition!.longitude),
+                            mapController.camera.zoom,
+                          );
+                        }
+                      },
+                      child: const Icon(Icons.navigation_rounded),
                     ),
                     const SizedBox(height: 8),
                     FloatingActionButton.small(
@@ -1151,7 +1165,6 @@ class MapStatusPanel extends StatelessWidget {
     required this.locating,
     required this.message,
     required this.onRetry,
-    this.fixedTestLocation = false,
     super.key,
   });
 
@@ -1159,7 +1172,6 @@ class MapStatusPanel extends StatelessWidget {
   final bool locating;
   final String? message;
   final VoidCallback onRetry;
-  final bool fixedTestLocation;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -1171,16 +1183,15 @@ class MapStatusPanel extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color:
-                      (message != null && !fixedTestLocation ? orange : success)
-                          .withValues(alpha: .12),
+                  color: (message != null ? orange : success)
+                      .withValues(alpha: .12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  message != null && !fixedTestLocation
+                  message != null
                       ? Icons.location_disabled_rounded
                       : Icons.gps_fixed_rounded,
-                  color: message != null && !fixedTestLocation
+                  color: message != null
                       ? orangeDark
                       : success,
                 ),
@@ -1191,9 +1202,7 @@ class MapStatusPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      fixedTestLocation
-                          ? 'Localização fixa de teste'
-                          : locating
+                      locating
                               ? 'Localizando você...'
                               : position != null
                                   ? 'Sua localização em tempo real'
@@ -1202,9 +1211,7 @@ class MapStatusPanel extends StatelessWidget {
                           fontWeight: FontWeight.w900, color: ink),
                     ),
                     Text(
-                      fixedTestLocation
-                          ? 'Rua São Paulo, 1147 · Victor Konder'
-                          : message ??
+                      message ??
                               (position == null
                                   ? 'O mapa está centralizado em Blumenau.'
                                   : 'Precisão aproximada: ${position!.accuracy.round()} m'),
@@ -1215,7 +1222,7 @@ class MapStatusPanel extends StatelessWidget {
                   ],
                 ),
               ),
-              if (message != null && !fixedTestLocation)
+              if (message != null)
                 IconButton(
                   tooltip: 'Tentar localizar novamente',
                   onPressed: onRetry,

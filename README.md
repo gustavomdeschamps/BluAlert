@@ -125,10 +125,9 @@ flutter run --dart-define=SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co --dar
 
 ## Painel de operações
 
-Para demonstrações escolares, execute `./run-blualert.bat --test`. Essa opção
-habilita a localização fixa do SENAI e identifica os novos registros como teste.
-No VS Code também existe **BluAlert: Chrome modo de teste**. A execução sem
-`--test` continua usando a localização real.
+O app usa a localização autorizada pelo aparelho para mostrar a posição no mapa.
+Cada ocorrência exige uma captura atual do GPS e confirmação do ponto no mapa;
+um endereço salvo no cadastro não substitui a localização da ocorrência.
 
 O painel de alta densidade está em `operator-panel/`. Copie `.env.example` para `.env`, preencha a URL e a chave pública do Supabase e execute:
 
@@ -147,9 +146,8 @@ O serviço opcional em `ai-triage/` roda no notebook da operação com Ollama. E
 No Android, o perfil e os tokens de sessão ficam no cofre seguro do sistema
 (`flutter_secure_storage`). No navegador, onde não existe cofre equivalente, eles
 ficam no armazenamento local — mais um motivo para o piloto em campo usar o
-aplicativo no celular. A senha nunca é gravada. A localização só é solicitada no
-cadastro, no registro de uma ocorrência ou quando a pessoa pede para atualizar o
-mapa.
+aplicativo no celular. A senha nunca é gravada. O cadastro não solicita GPS.
+A localização é solicitada ao abrir o mapa ou confirmar o local de uma ocorrência.
 
 ## Validação
 
