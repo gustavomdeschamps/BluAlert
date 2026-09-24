@@ -7,8 +7,31 @@ import 'package:blualert/queue/queue_controller.dart';
 import 'package:blualert/queue/queue_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  testWidgets('acessibilidade altera escala, contraste e movimento no app',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final accessibility = AccessibilityController.instance;
+    await accessibility.setTextScale(1.3);
+    await accessibility.setHighContrast(true);
+    await accessibility.setReduceMotion(true);
+    addTearDown(() async {
+      await accessibility.setTextScale(1);
+      await accessibility.setHighContrast(false);
+      await accessibility.setReduceMotion(false);
+    });
+
+    await tester.pumpWidget(const BluAlertApp());
+    await tester.pump();
+    final context = tester.element(find.byType(AccountGate));
+    expect(MediaQuery.textScalerOf(context).scale(10), closeTo(13, .01));
+    expect(MediaQuery.highContrastOf(context), isTrue);
+    expect(MediaQuery.disableAnimationsOf(context), isTrue);
+    expect(Theme.of(context).scaffoldBackgroundColor, Colors.white);
+  });
+
   testWidgets('acessibilidade mantém moldura do app após navegar no desktop',
       (tester) async {
     tester.view.physicalSize = const Size(1920, 1080);

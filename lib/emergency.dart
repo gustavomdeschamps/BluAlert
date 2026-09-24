@@ -298,7 +298,7 @@ class PilotNotice extends StatelessWidget {
                       size: 18, color: _pilotAmber),
                   SizedBox(width: 8),
                   Text(
-                    'VERSÃO PILOTO',
+                    'SOBRE ESTE CANAL',
                     style: TextStyle(
                       color: _pilotAmber,
                       fontSize: 11,
@@ -310,9 +310,9 @@ class PilotNotice extends StatelessWidget {
               ),
               const SizedBox(height: 7),
               const Text(
-                'Projeto escolar em teste. Este canal não substitui a central de '
-                'emergência e não é monitorado pela Defesa Civil. Nenhuma equipe '
-                'é acionada automaticamente pelo aplicativo.',
+                'O BluAlert registra ocorrências para consulta no painel privado. '
+                'Este envio não substitui uma ligação de emergência e não aciona '
+                'automaticamente uma equipe. Em perigo imediato, ligue 199.',
                 style: TextStyle(color: _pilotInk, fontSize: 12, height: 1.45),
               ),
               SizedBox(height: dense ? 10 : 12),
@@ -427,7 +427,7 @@ class PilotBadge extends StatelessWidget {
               borderRadius: BorderRadius.circular(5),
             ),
             child: const Text(
-              'VERSÃO PILOTO',
+              'CANAL DIGITAL',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 9,

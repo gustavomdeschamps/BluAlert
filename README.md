@@ -1,8 +1,8 @@
 # BluAlert
 
-Protótipo escolar de orientação e registro de ocorrências em Blumenau. O BluAlert não é um aplicativo oficial da Defesa Civil. O projeto ainda não dispõe de uma equipe de atendimento para os registros enviados.
+O BluAlert reúne dados reais de Blumenau, orientações e registro de ocorrências. Os dados exibidos informam a origem e o horário. Ainda não há uma equipe de atendimento responsável pelos registros enviados.
 
-> **VERSÃO PILOTO.** O canal digital está em teste e não substitui a central de
+> **SOBRE ESTE CANAL.** O envio não substitui uma ligação de
 > emergência. Nenhuma equipe é acionada automaticamente pelo aplicativo. Em
 > risco imediato, ligue **199** (Defesa Civil) ou **193** (Bombeiros).
 
@@ -37,7 +37,7 @@ Protótipo escolar de orientação e registro de ocorrências em Blumenau. O Blu
 - A promoção para `operator` e `supervisor` é manual, pelo SQL Editor.
 - Para gerar Android de distribuição será necessária uma chave de assinatura
   própria em `android/key.properties`; veja `android/key.properties.example`.
-- O piloto web aceita registros para teste, sem plantão ou resposta garantida.
+- O canal web aceita registros, mas ainda não dispõe de plantão ou resposta garantida.
   Para pedir exclusão de dados, use o contato em `web/privacy.html`.
 
 ## Executar
@@ -129,7 +129,12 @@ O app usa a localização autorizada pelo aparelho para mostrar a posição no m
 Cada ocorrência exige uma captura atual do GPS e confirmação do ponto no mapa;
 um endereço salvo no cadastro não substitui a localização da ocorrência.
 
-O painel de alta densidade está em `operator-panel/`. Copie `.env.example` para `.env`, preencha a URL e a chave pública do Supabase e execute:
+O painel privado está em `https://gustavomdeschamps.github.io/BluAlert/painel/`.
+Em cada aparelho, a conta com papel `operator` ou `supervisor` precisa ser
+autorizada uma vez; a sessão fica salva até sair ou expirar. Sem esse papel,
+as permissões do Supabase impedem a leitura dos dados. Para executar localmente,
+copie `operator-panel/.env.example` para `operator-panel/.env`, preencha a URL
+e a chave pública do Supabase e execute:
 
 ```bash
 cd operator-panel
@@ -137,7 +142,8 @@ npm install
 npm run dev
 ```
 
-Para gerar os arquivos destinados ao Cloudflare Pages, use `npm run build`. O diretório de saída é `operator-panel/dist`.
+O GitHub Actions compila o painel junto com o aplicativo web. Para compilar
+manualmente, use `npm run build` em `operator-panel/`.
 
 ## Triagem assistida local
 
@@ -145,7 +151,7 @@ O serviço opcional em `ai-triage/` roda no notebook da operação com Ollama. E
 
 No Android, o perfil e os tokens de sessão ficam no cofre seguro do sistema
 (`flutter_secure_storage`). No navegador, onde não existe cofre equivalente, eles
-ficam no armazenamento local — mais um motivo para o piloto em campo usar o
+ficam no armazenamento local — mais um motivo para uso em campo no
 aplicativo no celular. A senha nunca é gravada. O cadastro não solicita GPS.
 A localização é solicitada ao abrir o mapa ou confirmar o local de uma ocorrência.
 
@@ -176,7 +182,7 @@ Roteiro manual mínimo antes de liberar uma versão:
 ## Estrutura
 
 - `lib/account_flow.dart` — abertura, cadastro, acesso e recuperação de perfil;
-- `lib/emergency.dart` — configuração do piloto, aviso de VERSÃO PILOTO e
+- `lib/emergency.dart` — configuração do canal, aviso sobre o envio e
   ligações de emergência;
 - `lib/queue/` — fila offline: modelos, banco SQLite (drift), armazenamento das
   evidências, compressão e o motor de envio com recuo exponencial;

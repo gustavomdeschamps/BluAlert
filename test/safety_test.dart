@@ -80,8 +80,8 @@ void main() {
     });
   });
 
-  group('aviso de piloto na interface', () {
-    testWidgets('mostra VERSÃO PILOTO e o telefone de emergência',
+  group('aviso sobre o canal na interface', () {
+    testWidgets('mostra o limite do canal e o telefone de emergência',
         (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -89,8 +89,8 @@ void main() {
         ),
       );
 
-      expect(find.text('VERSÃO PILOTO'), findsOneWidget);
-      expect(find.textContaining('não substitui a central de emergência'),
+      expect(find.text('SOBRE ESTE CANAL'), findsOneWidget);
+      expect(find.textContaining('não substitui uma ligação de emergência'),
           findsOneWidget);
       expect(find.textContaining('199'), findsWidgets);
     });
@@ -104,7 +104,7 @@ void main() {
       );
 
       expect(
-        find.textContaining('Nenhuma equipe é acionada automaticamente'),
+        find.textContaining('não aciona automaticamente uma equipe'),
         findsOneWidget,
       );
     });
@@ -123,7 +123,7 @@ void main() {
         const MaterialApp(home: Scaffold(body: PilotNotice())),
       );
 
-      expect(find.text('VERSÃO PILOTO'), findsNothing);
+      expect(find.text('SOBRE ESTE CANAL'), findsNothing);
     });
 
     testWidgets('usa o telefone publicado pelo servidor', (tester) async {
@@ -177,7 +177,7 @@ void main() {
       // Regressão: a cópia antiga afirmava que o BluAlert "não simula o envio"
       // e mandava usar outro aplicativo, contradizendo o fluxo real.
       expect(find.textContaining('não simula o envio'), findsNothing);
-      expect(find.text('VERSÃO PILOTO'), findsOneWidget);
+      expect(find.text('SOBRE ESTE CANAL'), findsOneWidget);
     });
   });
 }

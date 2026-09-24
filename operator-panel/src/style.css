@@ -3,3 +3,9 @@
 .street-view { margin: 16px 0; padding: 14px; background: #eef3f7; border-radius: 12px; }
 .street-view a { display: inline-block; color: #173b67; font-weight: 700; }
 .street-view p { font-size: 13px; line-height: 1.5; margin-bottom: 0; }
+@media (max-width: 680px) {
+  .workspace { display: flex; flex-direction: column; }
+  .map-wrap { display: block; flex: 0 0 42vh; min-height: 260px; }
+  .queue { flex: 1; min-height: 0; }
+  .header-status .quiet { font-size: 11px; padding: 6px; }
+}

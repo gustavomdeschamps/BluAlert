@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#0B2748",
     "theme_color": "#0B2748",
-    "description": "Alertas e orientacao da Defesa Civil de Blumenau",
+    "description": "Informacoes reais e registro de ocorrencias no BluAlert",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

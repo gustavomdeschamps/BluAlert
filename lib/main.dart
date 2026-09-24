@@ -36,16 +36,6 @@ const muted = Color(0xFF5C6B74);
 const success = Color(0xFF16845B);
 const danger = Color(0xFFC92B35);
 
-final alertaBluUri = Uri.parse(
-  'https://defesacivil.blumenau.sc.gov.br/c/meteorologia/aplicativo',
-);
-final officialRiskMapUri = Uri.parse(
-  'https://defesacivil.blumenau.sc.gov.br/m/risco',
-);
-final officialFloodMapUri = Uri.parse(
-  'https://defesacivil.blumenau.sc.gov.br/m/inundacao',
-);
-
 class BluAlertApp extends StatelessWidget {
   const BluAlertApp({super.key});
 
@@ -61,7 +51,9 @@ class BluAlertApp extends StatelessWidget {
           final media = MediaQuery.of(context);
           return MediaQuery(
             data: media.copyWith(
-              textScaler: TextScaler.linear(accessibility.textScale),
+              textScaler: TextScaler.linear(
+                media.textScaler.scale(accessibility.textScale),
+              ),
               disableAnimations: accessibility.reduceMotion,
               highContrast: accessibility.highContrast,
             ),
@@ -70,13 +62,16 @@ class BluAlertApp extends StatelessWidget {
         },
         theme: ThemeData(
           useMaterial3: true,
-          scaffoldBackgroundColor: canvas,
+          scaffoldBackgroundColor:
+              accessibility.highContrast ? Colors.white : canvas,
           colorScheme: ColorScheme.fromSeed(
             seedColor: navy,
             primary: accessibility.highContrast ? navyDark : navy,
-            secondary: orange,
+            secondary: accessibility.highContrast ? navyDark : orange,
             error: danger,
             surface: Colors.white,
+            onSurface: accessibility.highContrast ? Colors.black : ink,
+            outline: accessibility.highContrast ? Colors.black : muted,
           ),
           fontFamily: 'Arial',
           textTheme: const TextTheme(
@@ -113,7 +108,12 @@ class BluAlertApp extends StatelessWidget {
             color: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
-              side: const BorderSide(color: Color(0xFFE1E6E9)),
+              side: BorderSide(
+                color: accessibility.highContrast
+                    ? Colors.black
+                    : const Color(0xFFE1E6E9),
+                width: accessibility.highContrast ? 2 : 1,
+              ),
             ),
           ),
           filledButtonTheme: FilledButtonThemeData(
@@ -130,11 +130,21 @@ class BluAlertApp extends StatelessWidget {
             fillColor: Colors.white,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFD8DFE3)),
+              borderSide: BorderSide(
+                color: accessibility.highContrast
+                    ? Colors.black
+                    : const Color(0xFFD8DFE3),
+                width: accessibility.highContrast ? 2 : 1,
+              ),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFD8DFE3)),
+              borderSide: BorderSide(
+                color: accessibility.highContrast
+                    ? Colors.black
+                    : const Color(0xFFD8DFE3),
+                width: accessibility.highContrast ? 2 : 1,
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
@@ -211,7 +221,7 @@ class _AppShellState extends State<AppShell> {
         OccurrenceScreen(profile: widget.profile, queue: controller)
       else
         QueueUnavailableScreen(failed: queueFailed),
-      const EmergencyScreen(),
+      EmergencyScreen(onReport: () => setState(() => index = 2)),
       const GuidanceScreen(),
     ];
 
@@ -657,7 +667,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Defesa Civil de Blumenau, ANA e previsão de modelo',
+                            'Dados atualizados de rio, tempo e avisos locais',
                             style: TextStyle(color: muted, fontSize: 12),
                           ),
                         ],
@@ -670,7 +680,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   repository: repository,
                   residentLatitude: widget.profile.latitude,
                   residentLongitude: widget.profile.longitude,
-                  onOpenSource: (url) => openExternal(context, Uri.parse(url)),
                 ),
                 const SizedBox(height: 24),
                 const SectionHeading(
@@ -689,7 +698,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 PriorityAction(
                   icon: Icons.my_location_rounded,
                   title: 'Ver minha localização no mapa',
-                  detail: 'GPS, ruas reais e acesso às áreas oficiais de risco',
+                  detail: 'GPS e ruas no mapa do BluAlert',
                   color: orange,
                   onTap: () => widget.onNavigate(1),
                 ),
@@ -1026,56 +1035,6 @@ class _RealMapScreenState extends State<RealMapScreen> {
                   ],
                 ),
               ),
-              Positioned(
-                left: 14,
-                right: 14,
-                bottom: 14,
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(13),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'CAMADAS OFICIAIS DA PREFEITURA',
-                          style: TextStyle(
-                            color: orangeDark,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        const SizedBox(height: 9),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => openExternal(
-                                  context,
-                                  officialRiskMapUri,
-                                ),
-                                icon: const Icon(Icons.landscape_rounded),
-                                label: const Text('Deslizamento'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => openExternal(
-                                  context,
-                                  officialFloodMapUri,
-                                ),
-                                icon: const Icon(Icons.water_rounded),
-                                label: const Text('Inundação'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -1247,7 +1206,9 @@ class MapStatusPanel extends StatelessWidget {
 }
 
 class EmergencyScreen extends StatelessWidget {
-  const EmergencyScreen({super.key});
+  const EmergencyScreen({this.onReport, super.key});
+
+  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1292,43 +1253,21 @@ class EmergencyScreen extends StatelessWidget {
                 const SizedBox(height: 22),
                 const SectionHeading(
                   eyebrow: 'OCORRÊNCIAS NÃO EMERGENCIAIS',
-                  title: 'Canais disponíveis',
+                  title: 'Registrar no BluAlert',
                 ),
                 const SizedBox(height: 10),
                 const PilotNotice(),
-                const SizedBox(height: 10),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Canal oficial da Prefeitura',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w900, color: ink),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'O AlertaBlu é o canal já integrado à estrutura municipal. Use-o sempre que precisar de um registro com encaminhamento garantido.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: () =>
-                                openExternal(context, alertaBluUri),
-                            style: FilledButton.styleFrom(
-                                backgroundColor: orangeDark),
-                            icon: const Icon(Icons.open_in_new_rounded),
-                            label: const Text('Abrir canal oficial'),
-                          ),
-                        ),
-                      ],
+                if (onReport != null) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: onReport,
+                      icon: const Icon(Icons.add_a_photo_outlined),
+                      label: const Text('Registrar ocorrência aqui'),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -1488,12 +1427,6 @@ class GuidanceScreen extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 11),
                     child: GuideCard(guide: guide),
                   )),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => openExternal(context, alertaBluUri),
-                icon: const Icon(Icons.verified_rounded),
-                label: const Text('Consultar Defesa Civil de Blumenau'),
-              ),
             ],
           ),
         ),

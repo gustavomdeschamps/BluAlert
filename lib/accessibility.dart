@@ -48,7 +48,9 @@ class AccessibilityScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AccessibilityController.instance;
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F5F7),
+      backgroundColor: MediaQuery.highContrastOf(context)
+          ? Colors.white
+          : const Color(0xFFF2F5F7),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0B2748),
         foregroundColor: Colors.white,
@@ -169,7 +171,9 @@ class _AccessibilityIcon extends StatelessWidget {
         width: 52,
         height: 52,
         decoration: BoxDecoration(
-            color: const Color(0xFFF06432),
+            color: MediaQuery.highContrastOf(context)
+                ? const Color(0xFF0B2748)
+                : const Color(0xFFF06432),
             borderRadius: BorderRadius.circular(16)),
         child: const Icon(Icons.accessibility_new_rounded,
             color: Colors.white, size: 30),
@@ -188,13 +192,18 @@ class _SettingsCard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final highContrast = MediaQuery.highContrastOf(context);
+    return Container(
         padding: const EdgeInsets.all(17),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFD9E1E6)),
-          boxShadow: const [
+          border: Border.all(
+            color: highContrast ? Colors.black : const Color(0xFFD9E1E6),
+            width: highContrast ? 2 : 1,
+          ),
+          boxShadow: highContrast ? const [] : const [
             BoxShadow(
                 color: Color(0x0D0B2748), blurRadius: 16, offset: Offset(0, 6))
           ],
@@ -203,20 +212,27 @@ class _SettingsCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Icon(icon, color: const Color(0xFF173B67)),
+              Icon(icon,
+                  color: highContrast
+                      ? Colors.black
+                      : const Color(0xFF173B67)),
               const SizedBox(width: 10),
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                     Text(title,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFF162632))),
+                            color: highContrast
+                                ? Colors.black
+                                : const Color(0xFF162632))),
                     const SizedBox(height: 2),
                     Text(subtitle,
-                        style: const TextStyle(
-                            color: Color(0xFF5C6B74),
+                        style: TextStyle(
+                            color: highContrast
+                                ? Colors.black
+                                : const Color(0xFF5C6B74),
                             fontSize: 11.5,
                             height: 1.35)),
                   ])),
@@ -226,4 +242,5 @@ class _SettingsCard extends StatelessWidget {
           ],
         ),
       );
+  }
 }

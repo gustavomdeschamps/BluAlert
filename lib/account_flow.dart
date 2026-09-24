@@ -171,7 +171,9 @@ class _AccountGateState extends State<AccountGate> {
   @override
   Widget build(BuildContext context) {
     final child = AnimatedSwitcher(
-      duration: const Duration(milliseconds: 480),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 480),
       switchInCurve: Curves.easeOutCubic,
       child: switch (state) {
         _GateState.loading => const ColoredBox(
@@ -248,13 +250,14 @@ class _SignatureLaunchState extends State<SignatureLaunch>
     with SingleTickerProviderStateMixin {
   late final AnimationController controller;
   Timer? timer;
+  bool completed = false;
   @override
   void initState() {
     super.initState();
     controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 2600))
       ..forward();
-    timer = Timer(const Duration(milliseconds: 3000), widget.onComplete);
+    timer = Timer(const Duration(milliseconds: 3000), finish);
   }
 
   @override
@@ -265,8 +268,20 @@ class _SignatureLaunchState extends State<SignatureLaunch>
   }
 
   void finish() {
+    if (completed) return;
+    completed = true;
     timer?.cancel();
     widget.onComplete();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) finish();
+      });
+    }
   }
 
   @override
@@ -663,7 +678,10 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
         });
       }
     }
-    await shakeController.forward(from: 0);
+    if (!mounted) return;
+    if (!MediaQuery.disableAnimationsOf(context)) {
+      await shakeController.forward(from: 0);
+    }
   }
 
   @override
@@ -712,7 +730,9 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
               padding: const EdgeInsets.fromLTRB(20, 22, 20, 34),
               sliver: SliverToBoxAdapter(
                   child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 360),
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 360),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
                       transitionBuilder: (child, animation) => FadeTransition(
@@ -939,7 +959,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                     label: const Text('Criar cadastro'))),
             const SizedBox(height: 10),
             const Text(
-                'Projeto escolar em teste. O envio não aciona automaticamente a Defesa Civil. Leia como seus dados são usados antes de criar a conta.',
+                'O envio não aciona automaticamente uma equipe de emergência. Leia como seus dados são usados antes de criar a conta.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: _muted, fontSize: 11, height: 1.4)),
             const Center(

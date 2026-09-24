@@ -65,14 +65,12 @@ String describeAge(DateTime measuredAt, DateTime now) {
 class SituationPanel extends StatelessWidget {
   const SituationPanel({
     required this.repository,
-    required this.onOpenSource,
     this.residentLatitude,
     this.residentLongitude,
     super.key,
   });
 
   final SituationRepository repository;
-  final void Function(String url) onOpenSource;
   final double? residentLatitude;
   final double? residentLongitude;
 
@@ -99,11 +97,9 @@ class SituationPanel extends StatelessWidget {
               onRefresh: () => repository.refresh(force: true),
             ),
             const SizedBox(height: 14),
-            OfficialAlertsSection(
-                result: situation.alerts, onOpenSource: onOpenSource),
+            OfficialAlertsSection(result: situation.alerts),
             const SizedBox(height: 14),
-            RiverSection(
-                result: situation.river, now: now, onOpenSource: onOpenSource),
+            RiverSection(result: situation.river, now: now),
             const SizedBox(height: 14),
             CurrentWeatherSection(result: situation.weather, now: now),
             const SizedBox(height: 14),
@@ -116,7 +112,7 @@ class SituationPanel extends StatelessWidget {
               highlighted: home,
             ),
             const SizedBox(height: 14),
-            SourcesSection(situation: situation, onOpenSource: onOpenSource),
+            SourcesSection(situation: situation),
           ],
         );
       },
@@ -200,14 +196,12 @@ class _SectionCard extends StatelessWidget {
     required this.title,
     required this.child,
     this.accent = _navy,
-    this.trailing,
   });
 
   final IconData icon;
   final String title;
   final Widget child;
   final Color accent;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -229,7 +223,6 @@ class _SectionCard extends StatelessWidget {
                           fontSize: 14),
                     ),
                   ),
-                  if (trailing != null) trailing!,
                 ],
               ),
               const SizedBox(height: 12),
@@ -324,12 +317,10 @@ class StaleBadge extends StatelessWidget {
 class OfficialAlertsSection extends StatelessWidget {
   const OfficialAlertsSection({
     required this.result,
-    required this.onOpenSource,
     super.key,
   });
 
   final ProviderResult<OfficialAlerts> result;
-  final void Function(String url) onOpenSource;
 
   @override
   Widget build(BuildContext context) {
@@ -348,10 +339,6 @@ class OfficialAlertsSection extends StatelessWidget {
       icon: Icons.campaign_outlined,
       title: 'Situação oficial',
       accent: accent,
-      trailing: TextButton(
-        onPressed: () => onOpenSource(alerts.origin.officialUrl),
-        child: const Text('Ver fonte'),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -481,13 +468,11 @@ class RiverSection extends StatelessWidget {
   const RiverSection({
     required this.result,
     required this.now,
-    required this.onOpenSource,
     super.key,
   });
 
   final ProviderResult<RiverSituation> result;
   final DateTime now;
-  final void Function(String url) onOpenSource;
 
   @override
   Widget build(BuildContext context) {
@@ -511,10 +496,6 @@ class RiverSection extends StatelessWidget {
       icon: Icons.water_rounded,
       title: 'Nível do Rio Itajaí-Açu',
       accent: _water,
-      trailing: TextButton(
-        onPressed: () => onOpenSource(river.level.origin.officialUrl),
-        child: const Text('Ver fonte'),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1243,35 +1224,30 @@ class _AreaTile extends StatelessWidget {
 class SourcesSection extends StatelessWidget {
   const SourcesSection({
     required this.situation,
-    required this.onOpenSource,
     super.key,
   });
 
   final BlumenauSituation situation;
-  final void Function(String url) onOpenSource;
 
   @override
   Widget build(BuildContext context) {
-    final entries = <({String label, String nature, String url, String? when})>[
+    final entries = <({String label, String nature, String? when})>[
       if (situation.alerts.hasData)
         (
           label: situation.alerts.data!.origin.sourceName,
           nature: 'Publicação oficial',
-          url: situation.alerts.data!.origin.officialUrl,
           when: formatDate(situation.alerts.data!.publishedAt),
         ),
       if (situation.river.hasData)
         (
           label: situation.river.data!.level.origin.sourceName,
           nature: 'Medição em estação telemétrica',
-          url: situation.river.data!.level.origin.officialUrl,
           when: formatDateTime(situation.river.data!.level.measuredAt),
         ),
       if (situation.weather.hasData)
         (
           label: situation.weather.data!.origin.sourceName,
           nature: 'Previsão de modelo por grade',
-          url: situation.weather.data!.origin.officialUrl,
           when: formatDateTime(
               situation.weather.data!.current.temperature.measuredAt),
         ),
@@ -1310,10 +1286,6 @@ class SourcesSection extends StatelessWidget {
                             ),
                           ],
                         ),
-                      ),
-                      TextButton(
-                        onPressed: () => onOpenSource(entry.url),
-                        child: const Text('Abrir'),
                       ),
                     ],
                   ),

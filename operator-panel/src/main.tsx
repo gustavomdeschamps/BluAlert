@@ -57,11 +57,11 @@ function Login() {
     if (result.error) setError('Acesso não autorizado. Confira usuário e senha.');
   }
   return <main className="login-shell"><form className="login-card" onSubmit={submit}>
-    <div className="brand-mark" aria-hidden="true">BA</div><p className="eyebrow">PROJETO ESCOLAR • BLUMENAU</p>
-    <h1>Sala de Operações</h1><p className="subtle">Acesso restrito à equipe autorizada.</p>
+    <div className="brand-mark" aria-hidden="true">BA</div><p className="eyebrow">BLUALERT • PAINEL PRIVADO</p>
+    <h1>Autorizar este aparelho</h1><p className="subtle">Entre uma vez com sua conta de operador. O acesso permanece neste aparelho até você sair ou a sessão expirar.</p>
     <label>E-mail<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
     <label>Senha<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
-    {error && <p className="error" role="alert">{error}</p>}<button type="submit">Entrar no plantão</button>
+    {error && <p className="error" role="alert">{error}</p>}<button type="submit">Autorizar aparelho</button>
   </form></main>;
 }
 
@@ -100,7 +100,7 @@ function Operations() {
   const sorted = useMemo(() => [...items].sort((a,b) => b.effective_priority-a.effective_priority || +new Date(a.created_at)-+new Date(b.created_at)), [items]);
   return <main className="ops-shell">
     <header><div><span className="signal-logo">BA</span><strong>BluAlert</strong><small>Sala de Operações</small></div>
-      <div className="header-status"><span className={`connection ${connection}`}>{connection === 'live' ? 'Atualização em tempo real' : 'Reconectando'}</span><span className="pilot">VERSÃO PILOTO</span><button className="quiet" onClick={() => supabase.auth.signOut()}>Sair</button></div></header>
+      <div className="header-status"><span className={`connection ${connection}`}>{connection === 'live' ? 'Atualização em tempo real' : 'Reconectando'}</span><button className="quiet" onClick={() => supabase.auth.signOut()}>Desautorizar aparelho</button></div></header>
     {error && <div className="system-error" role="alert">{error} <button onClick={load}>Tentar novamente</button></div>}
     <section className="workspace">
       <Map items={items} selected={selected} onSelect={setSelected} />

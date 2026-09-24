@@ -27,6 +27,19 @@ jobs:
       - run: flutter test
       - name: Compilar versão pública
         run: flutter build web --release --pwa-strategy=none --base-href /BluAlert/ --dart-define-from-file=.dart-defines.public.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: operator-panel/package-lock.json
+      - name: Compilar painel privado
+        run: |
+          export VITE_SUPABASE_URL="$(jq -r '.SUPABASE_URL' .dart-defines.public.json)"
+          export VITE_SUPABASE_ANON_KEY="$(jq -r '.SUPABASE_ANON_KEY' .dart-defines.public.json)"
+          npm ci --prefix operator-panel
+          npm run build --prefix operator-panel -- --base /BluAlert/painel/
+          mkdir -p build/web/painel
+          cp -R operator-panel/dist/. build/web/painel/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: build/web
