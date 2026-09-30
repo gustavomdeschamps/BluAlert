@@ -137,8 +137,8 @@ class _AccountGateState extends State<AccountGate> {
     if (mounted) setState(() => state = _GateState.launch);
   }
 
-  Future<void> _register(ResidentProfile resident, String password) async {
-    await backend.register(
+  Future<bool> _register(ResidentProfile resident, String password) async {
+    final sessionCreated = await backend.register(
       email: resident.email,
       password: password,
       fullName: resident.fullName,
@@ -154,6 +154,7 @@ class _AccountGateState extends State<AccountGate> {
         state = _GateState.account;
       });
     }
+    return sessionCreated;
   }
 
   Future<void> _remove() async {
@@ -514,7 +515,7 @@ class AccountAccessScreen extends StatefulWidget {
       super.key});
   final ResidentProfile? profile;
   final ProfileVault vault;
-  final Future<void> Function(ResidentProfile, String) onRegistered;
+  final Future<bool> Function(ResidentProfile, String) onRegistered;
   final Future<void> Function(ResidentProfile?) onUnlocked;
   final Future<void> Function() onReset;
   @override
@@ -562,8 +563,9 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
   Future<void> createAccount() async {
     if (!formKey.currentState!.validate()) return;
     setState(() => saving = true);
+    bool sessionCreated;
     try {
-      await widget.onRegistered(
+      sessionCreated = await widget.onRegistered(
           ResidentProfile(
               email: email.text.trim().toLowerCase(),
               fullName: fullName.text.trim(),
@@ -579,6 +581,11 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
       return;
     }
     if (!mounted) return;
+    if (sessionCreated) {
+      setState(() => saving = false);
+      await widget.onUnlocked(null);
+      return;
+    }
     pendingPassword = password.text;
     setState(() {
       saving = false;

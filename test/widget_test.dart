@@ -102,7 +102,10 @@ void main() {
         home: AccountAccessScreen(
           profile: null,
           vault: const ProfileVault(),
-          onRegistered: (profile, _) async => registered = profile,
+          onRegistered: (profile, _) async {
+            registered = profile;
+            return false;
+          },
           onUnlocked: (_) async {},
           onReset: () async {},
         ),
@@ -135,6 +138,35 @@ void main() {
     expect(find.text('Confirme seu e-mail'), findsOneWidget);
   });
 
+  testWidgets('cadastro sem confirmação entra direto quando recebe sessão',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var unlocked = false;
+    await tester.pumpWidget(MaterialApp(
+      home: AccountAccessScreen(
+        profile: null,
+        vault: const ProfileVault(),
+        onRegistered: (_, __) async => true,
+        onUnlocked: (_) async => unlocked = true,
+        onReset: () async {},
+      ),
+    ));
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'Maria Silva');
+    await tester.enterText(
+        find.byType(TextFormField).at(1), 'maria@example.com');
+    await tester.enterText(find.byType(TextFormField).at(2), 'RioSeguro!2026');
+    await tester.enterText(find.byType(TextFormField).at(3), '47999999999');
+    await tester.tap(find.text('Criar cadastro'));
+    await tester.pump();
+
+    expect(unlocked, isTrue);
+    expect(find.text('Confirme seu e-mail'), findsNothing);
+  });
+
   testWidgets('perfil já salvo começa pela tela de login', (tester) async {
     const profile = ResidentProfile(
       email: 'morador@exemplo.com',
@@ -147,7 +179,7 @@ void main() {
         home: AccountAccessScreen(
           profile: profile,
           vault: const ProfileVault(),
-          onRegistered: (_, __) async {},
+          onRegistered: (_, __) async => false,
           onUnlocked: (_) async {},
           onReset: () async {},
         ),
@@ -177,7 +209,7 @@ void main() {
         home: AccountAccessScreen(
           profile: profile,
           vault: const ProfileVault(),
-          onRegistered: (_, __) async {},
+          onRegistered: (_, __) async => false,
           onUnlocked: (_) async {},
           onReset: () async {},
         ),

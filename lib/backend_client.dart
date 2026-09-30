@@ -135,7 +135,8 @@ class BackendClient {
     );
   }
 
-  Future<void> register({
+  /// Retorna true quando o cadastro já criou uma sessão (confirmação desativada).
+  Future<bool> register({
     required String email,
     required String password,
     required String fullName,
@@ -170,7 +171,9 @@ class BackendClient {
         decoded['user'] == null) {
       throw BackendUnavailable(_authError(decoded));
     }
-    if (decoded['access_token'] != null) await _saveAuthResponse(decoded);
+    final sessionCreated = decoded['access_token'] != null;
+    if (sessionCreated) await _saveAuthResponse(decoded);
+    return sessionCreated;
   }
 
   Future<void> signIn({required String email, required String password}) async {
@@ -376,7 +379,9 @@ class BackendClient {
         (body['msg'] ?? body['message'] ?? body['error_description'])
             ?.toString()
             .toLowerCase();
-    if (code == 'user_already_exists' || code == 'email_exists') {
+    if (code == 'user_already_exists' ||
+        code == 'email_exists' ||
+        message?.contains('user already registered') == true) {
       return 'Este e-mail já possui cadastro.';
     }
     if (code == 'invalid_credentials') return 'E-mail ou senha incorretos.';
