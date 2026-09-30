@@ -17,8 +17,9 @@ const _paper = Color(0xFFF3F6F8);
 const _ink = Color(0xFF102433);
 const _muted = Color(0xFF60717B);
 const _green = Color(0xFF14815A);
-final _privacyUrl = Uri.parse(
-    'https://gustavomdeschamps.github.io/BluAlert/privacy.html');
+final _privacyUrl = kIsWeb
+    ? Uri.base.resolve('privacy.html')
+    : Uri.parse('https://blualert.vercel.app/privacy.html');
 
 Future<void> _openPrivacyPolicy() async {
   await launchUrl(_privacyUrl, mode: LaunchMode.externalApplication);

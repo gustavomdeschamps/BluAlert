@@ -77,17 +77,29 @@ na janela do Chrome aberta automaticamente pelo comando.
 
 ### Versão web
 
-A publicação web usa GitHub Actions e GitHub Pages. O fluxo está em
-`.github/workflows/web-pages.yml`; a URL prevista é
-`https://gustavomdeschamps.github.io/BluAlert/`. O aviso de privacidade fica
-em `/BluAlert/privacy.html`. Em **Settings → Pages**, escolha **GitHub Actions**
-como origem da publicação.
+A versão pública principal está em `https://blualert.vercel.app/`, com o aviso
+de privacidade em `/privacy.html` e o painel em `/painel/`. Para gerar o pacote
+local da Vercel, execute no PowerShell:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-vercel.ps1
+```
+
+O resultado fica em `build/web`; o arquivo `vercel.json`
+define essa pasta como saída. Após compilar, use `vercel build --prod` e
+`vercel deploy --prebuilt --prod` na pasta do projeto vinculada à Vercel.
+
+O GitHub Pages continua como endereço alternativo em
+`https://gustavomdeschamps.github.io/BluAlert/`. Sua publicação automática usa
+`.github/workflows/web-pages.yml`.
 
 No Supabase hospedado, abra **Authentication → URL Configuration** e defina
-**Site URL** como `https://gustavomdeschamps.github.io/BluAlert/`. Esse é o
-destino padrão dos links de confirmação por e-mail quando o cadastro não envia
-um redirecionamento específico; mantenha URLs locais adicionais somente se
-precisar testar o aplicativo no computador.
+**Site URL** como `https://blualert.vercel.app/`. Esse é o destino padrão dos
+links de confirmação por e-mail quando o cadastro não envia um redirecionamento
+específico. Mantenha o GitHub Pages na lista de URLs de redirecionamento enquanto
+o endereço alternativo estiver ativo. Nas Edge Functions, `ALLOWED_ORIGINS`
+inclui as origens `https://blualert.vercel.app` e
+`https://gustavomdeschamps.github.io`.
 
 ```bash
 flutter build web --release --pwa-strategy=none --dart-define-from-file=.dart-defines.json
@@ -129,7 +141,7 @@ O app usa a localização autorizada pelo aparelho para mostrar a posição no m
 Cada ocorrência exige uma captura atual do GPS e confirmação do ponto no mapa;
 um endereço salvo no cadastro não substitui a localização da ocorrência.
 
-O painel privado está em `https://gustavomdeschamps.github.io/BluAlert/painel/`.
+O painel privado está em `https://blualert.vercel.app/painel/`.
 Em cada aparelho, a conta com papel `operator` ou `supervisor` precisa ser
 autorizada uma vez; a sessão fica salva até sair ou expirar. Sem esse papel,
 as permissões do Supabase impedem a leitura dos dados. Para executar localmente,

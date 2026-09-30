@@ -41,6 +41,7 @@ devtools_options.yaml
 .pub/
 **/build/
 /coverage/
+/.vercel/
 **/node_modules/
 **/dist/
 **/.env
@@ -65,3 +66,5 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+.env*
