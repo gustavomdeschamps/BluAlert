@@ -9,8 +9,9 @@ O BluAlert reúne dados reais de Blumenau, orientações e registro de ocorrênc
 ## O que já funciona
 
 - abertura com animação da marca, respeitando "reduzir movimento";
-- cadastro por e-mail e senha, com confirmação por e-mail, reenvio com contagem
-  regressiva e restauração de sessão em aberturas seguintes;
+- cadastro por e-mail e senha forte (mínimo de 12 caracteres, maiúscula,
+  minúscula, número e símbolo), com entrada imediata e restauração de sessão
+  em aberturas seguintes;
 - registro de ocorrência em fila **offline-first**: a ocorrência é gravada no
   aparelho e enviada sozinha quando houver conexão, com recuo exponencial e
   limite de tentativas;
@@ -98,11 +99,14 @@ O GitHub Pages continua como endereço alternativo em
 `https://gustavomdeschamps.github.io/BluAlert/`. Sua publicação automática usa
 `.github/workflows/web-pages.yml`.
 
-No Supabase hospedado, abra **Authentication → URL Configuration** e defina
-**Site URL** como `https://blualert.vercel.app/`. Esse é o destino padrão dos
-links de confirmação por e-mail quando o cadastro não envia um redirecionamento
-específico. Mantenha o GitHub Pages na lista de URLs de redirecionamento enquanto
-o endereço alternativo estiver ativo. Nas Edge Functions, `ALLOWED_ORIGINS`
+No Supabase hospedado, **Authentication → User Signups → Confirm email** está
+desativado. Assim o cadastro devolve uma sessão imediatamente e não depende de
+um servidor de envio de e-mail. Isso também significa que a conta **não prova a
+posse do endereço informado**; para voltar a exigir confirmação, configure um
+SMTP próprio antes de reativá-la. Em **Authentication → URL Configuration**, a
+**Site URL** é `https://blualert.vercel.app/`. Mantenha o GitHub Pages na lista
+de URLs de redirecionamento enquanto o endereço alternativo estiver ativo. Nas
+Edge Functions, `ALLOWED_ORIGINS`
 inclui as origens `https://blualert.vercel.app` e
 `https://gustavomdeschamps.github.io`.
 
