@@ -85,9 +85,14 @@ local da Vercel, execute no PowerShell:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-vercel.ps1
 ```
 
-O resultado fica em `build/web`; o arquivo `vercel.json`
-define essa pasta como saída. Após compilar, use `vercel build --prod` e
-`vercel deploy --prebuilt --prod` na pasta do projeto vinculada à Vercel.
+O resultado fica em `build/web`; o arquivo `vercel.json` define essa pasta como
+saída. Na pasta do projeto já vinculada à Vercel, publique com:
+
+```powershell
+npm exec --yes --package vercel@61.1.0 -- vercel pull --yes --environment=production
+npm exec --yes --package vercel@61.1.0 -- vercel build --prod
+npm exec --yes --package vercel@61.1.0 -- vercel deploy --prebuilt --prod --yes
+```
 
 O GitHub Pages continua como endereço alternativo em
 `https://gustavomdeschamps.github.io/BluAlert/`. Sua publicação automática usa
