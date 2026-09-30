@@ -7,6 +7,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'password_policy.dart';
+
 /// Converte um telefone brasileiro para o formato E.164 esperado pelo banco
 /// (`^\+[1-9][0-9]{9,14}$`).
 ///
@@ -143,6 +145,8 @@ class BackendClient {
     double? longitude,
   }) async {
     _requireConfiguration();
+    final passwordError = validateRegistrationPassword(password);
+    if (passwordError != null) throw BackendUnavailable(passwordError);
     final response = await _http
         .post(
           Uri.parse('$supabaseUrl/auth/v1/signup'),
@@ -380,7 +384,7 @@ class BackendClient {
       return 'Confirme o link enviado ao seu e-mail antes de entrar.';
     }
     if (code == 'weak_password') {
-      return 'Use uma senha mais forte, com pelo menos 8 caracteres.';
+      return 'Use uma senha com 12 caracteres, letras maiúsculas e minúsculas, número e símbolo.';
     }
     if (code == 'email_address_not_authorized' ||
         message?.contains('email address not authorized') == true) {

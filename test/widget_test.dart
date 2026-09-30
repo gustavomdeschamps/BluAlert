@@ -122,8 +122,9 @@ void main() {
     expect(find.text('Nome do contato'), findsNothing);
 
     await tester.enterText(find.byType(TextFormField).at(0), 'Maria Silva');
-    await tester.enterText(find.byType(TextFormField).at(1), 'maria@example.com');
-    await tester.enterText(find.byType(TextFormField).at(2), 'senha-segura-123');
+    await tester.enterText(
+        find.byType(TextFormField).at(1), 'maria@example.com');
+    await tester.enterText(find.byType(TextFormField).at(2), 'RioSeguro!2026');
     await tester.enterText(find.byType(TextFormField).at(3), '47999999999');
     await tester.tap(find.text('Criar cadastro'));
     await tester.pump();
@@ -156,13 +157,15 @@ void main() {
     expect(find.text('Entrar no BluAlert'), findsOneWidget);
     expect(find.text('Nome completo'), findsNothing);
     expect(
-      tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text,
+      tester
+          .widget<TextFormField>(find.byType(TextFormField).first)
+          .controller!
+          .text,
       isEmpty,
     );
   });
 
-  testWidgets('login não revela o e-mail do cadastro salvo',
-      (tester) async {
+  testWidgets('login não revela o e-mail do cadastro salvo', (tester) async {
     const profile = ResidentProfile(
       email: 'gustavodeschamps33@gmail.com',
       fullName: 'Gustavo Moreira Deschamps',

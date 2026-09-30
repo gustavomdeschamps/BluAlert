@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'backend_client.dart';
 import 'emergency.dart';
+import 'password_policy.dart';
 
 const _deepBlue = Color(0xFF061C35);
 const _orange = Color(0xFFFF6328);
@@ -817,8 +818,7 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
 
   Widget _buildLogin() =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text(
-            'Entre no BluAlert',
+        const Text('Entre no BluAlert',
             style: TextStyle(
                 color: _ink,
                 fontSize: 28,
@@ -888,7 +888,8 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
                     fontWeight: FontWeight.w900,
                     letterSpacing: -.8)),
             const SizedBox(height: 7),
-            const Text('Crie sua conta. O local de cada ocorrência será obtido pelo GPS quando você a registrar.',
+            const Text(
+                'Crie sua conta. O local de cada ocorrência será obtido pelo GPS quando você a registrar.',
                 style: TextStyle(color: _muted, height: 1.4)),
             const SizedBox(height: 22),
             AppField(
@@ -915,12 +916,10 @@ class _AccountAccessScreenState extends State<AccountAccessScreen>
             AppField(
                 controller: password,
                 label: 'Senha da conta',
-                hint: 'Mínimo de 8 caracteres',
+                hint: '12+ caracteres, letras, número e símbolo',
                 icon: Icons.password_rounded,
                 obscureText: true,
-                validator: (v) => (v ?? '').length < 8
-                    ? 'Use pelo menos 8 caracteres'
-                    : null),
+                validator: validateRegistrationPassword),
             const SizedBox(height: 12),
             AppField(
                 controller: phone,
