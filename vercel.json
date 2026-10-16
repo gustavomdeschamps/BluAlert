@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "outputDirectory": "build/web"
+  "outputDirectory": "build/web",
+  "functions": {
+    "api/situation.js": {
+      "includeFiles": "server/certs/sectigo-intermediate.pem",
+      "maxDuration": 30
+    }
+  }
 }

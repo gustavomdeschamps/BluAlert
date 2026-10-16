@@ -38,6 +38,7 @@ migrate_working_dir/
 devtools_options.yaml
 .flutter-plugins-dependencies
 .pub-cache/
+.npm-firebase-cache/
 .pub/
 **/build/
 /coverage/

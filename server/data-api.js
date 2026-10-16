@@ -11,7 +11,7 @@
 // consultado direto pelo Flutter. Isso é deliberado — se este servidor não
 // estiver rodando, a previsão do tempo continua funcionando no aplicativo.
 //
-// Em produção o mesmo contrato é servido pela Edge Function `situation`.
+// Em produção o mesmo contrato é servido pela rota Vercel `/api/situation`.
 const http = require('node:http');
 const https = require('node:https');
 const fs = require('node:fs');
@@ -455,6 +455,8 @@ module.exports = {
   parseAnaReadings,
   parseAlertaBlu,
   centimetersToMeters,
+  loadHydrology,
+  loadAlerts,
   REASON,
   ANA_STATION,
 };

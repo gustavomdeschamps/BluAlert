@@ -7,8 +7,9 @@ import 'hydrology.dart';
 import 'measurement.dart';
 import 'official_alerts.dart';
 
-/// Lê a função `situation`, que reúne a telemetria da ANA e a publicação da
-/// Defesa Civil de Blumenau.
+/// Lê a API do BluAlert, que reúne a telemetria da ANA e a publicação da
+/// Defesa Civil de Blumenau. A função antiga do Supabase é um fallback
+/// temporário durante a migração do backend.
 ///
 /// Por que passar pelo backend em vez de consultar direto:
 ///
@@ -34,6 +35,10 @@ class BluAlertSituationProvider
   final DateTime Function() _clock;
 
   static const _timeout = Duration(seconds: 15);
+  static const _situationApiUrl = String.fromEnvironment(
+    'SITUATION_API_URL',
+    defaultValue: 'https://blualert.vercel.app/api/situation',
+  );
 
   /// Telemetria da ANA é horária; meia hora mantém o dado fresco.
   static const validity = Duration(minutes: 30);
@@ -68,42 +73,39 @@ class BluAlertSituationProvider
   }
 
   Future<Map<String, dynamic>> _fetch() async {
+    final endpoints = <({Uri url, Map<String, String> headers})>[
+      (url: Uri.parse(_situationApiUrl), headers: const {}),
+    ];
     final supabaseUrl = BackendClient.supabaseUrl;
     final anonKey = BackendClient.anonKey;
-    if (supabaseUrl.isEmpty || anonKey.isEmpty) {
-      throw const _SituationUnavailable(
-        DataState.sourceDown,
-        'O canal de dados oficiais ainda não foi configurado neste aplicativo.',
-      );
-    }
-    late final http.Response response;
-    try {
-      response = await _http.get(
-        Uri.parse('$supabaseUrl/functions/v1/situation'),
+    if (supabaseUrl.isNotEmpty && anonKey.isNotEmpty) {
+      endpoints.add((
+        url: Uri.parse('$supabaseUrl/functions/v1/situation'),
         headers: {'apikey': anonKey},
-      ).timeout(_timeout);
-    } catch (_) {
-      throw const _SituationUnavailable(
-        DataState.sourceDown,
-        'Não foi possível falar com o serviço de dados oficiais.',
-      );
+      ));
     }
-    if (response.statusCode != 200 && response.statusCode != 503) {
-      throw const _SituationUnavailable(
-        DataState.sourceDown,
-        'O serviço de dados oficiais respondeu com erro.',
-      );
+    for (final endpoint in endpoints) {
+      try {
+        final response = await _http
+            .get(endpoint.url, headers: endpoint.headers)
+            .timeout(_timeout);
+        if (response.statusCode != 200 && response.statusCode != 503) {
+          continue;
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) continue;
+        _cached = decoded;
+        _cachedAt = _clock();
+        return decoded;
+      } catch (_) {
+        // Durante a migração, a indisponibilidade de uma rota não deve
+        // impedir a tentativa da outra.
+      }
     }
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw const _SituationUnavailable(
-        DataState.invalidResponse,
-        'O serviço de dados oficiais devolveu um formato inesperado.',
-      );
-    }
-    _cached = decoded;
-    _cachedAt = _clock();
-    return decoded;
+    throw const _SituationUnavailable(
+      DataState.sourceDown,
+      'Não foi possível falar com o serviço de dados oficiais.',
+    );
   }
 
   @override
